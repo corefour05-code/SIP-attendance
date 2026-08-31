@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Scan — SIP Attendance{% endblock %}
+{% block title %}Scan — PSNA SIP Attendance{% endblock %}
 {% block content %}
 <h1>Attendance Scanner</h1>
 <p class="subtitle">Point the camera at a student to mark today's session automatically.</p>
@@ -14,6 +14,7 @@
     <div class="controls">
         <button id="toggle-btn">Pause</button>
         <button id="switch-btn" class="secondary" hidden>Switch Camera</button>
+        <button id="voice-btn" class="secondary">Voice: On</button>
     </div>
 </div>
 
@@ -24,6 +25,7 @@ const octx = overlay.getContext('2d');
 const idleMsg = document.getElementById('scan-idle-msg');
 const toggleBtn = document.getElementById('toggle-btn');
 const switchBtn = document.getElementById('switch-btn');
+const voiceBtn = document.getElementById('voice-btn');
 const captureCanvas = document.createElement('canvas');
 
 let stream = null;
@@ -44,6 +46,44 @@ const COLORS = {
     already: '#9a6a12',
     unknown: '#b3261e',
 };
+
+// Speaks a matched student's name aloud on scan. Every poll re-sends the
+// same face while a person lingers in frame, so announcements are
+// throttled per student rather than fired on every response.
+let voiceEnabled = 'speechSynthesis' in window;
+voiceBtn.hidden = !voiceEnabled;
+const lastAnnounced = {}; // student_id -> timestamp
+const ANNOUNCE_COOLDOWN_MS = 6000;
+
+function speak(text) {
+    if (!voiceEnabled) return;
+    try {
+        const utter = new SpeechSynthesisUtterance(text);
+        utter.rate = 1;
+        window.speechSynthesis.speak(utter);
+    } catch (err) {
+        // speech synthesis not available/blocked — fail silently, the
+        // on-screen name tag already carries the same information
+    }
+}
+
+function announceFaces(faces) {
+    if (!voiceEnabled || !faces) return;
+    const now = Date.now();
+    for (const face of faces) {
+        if (face.status !== 'match') continue;
+        const last = lastAnnounced[face.student_id] || 0;
+        if (now - last < ANNOUNCE_COOLDOWN_MS) continue;
+        lastAnnounced[face.student_id] = now;
+        speak(face.name);
+    }
+}
+
+voiceBtn.addEventListener('click', () => {
+    voiceEnabled = !voiceEnabled;
+    voiceBtn.textContent = 'Voice: ' + (voiceEnabled ? 'On' : 'Off');
+    if (!voiceEnabled) window.speechSynthesis.cancel();
+});
 
 function resizeOverlay() {
     // Assigning canvas.width/height clears the canvas as a side effect, even
@@ -243,6 +283,7 @@ async function scanLoop() {
             const res = await fetch('/api/scan', { method: 'POST', body: formData });
             const data = await res.json();
             render(data.faces);
+            announceFaces(data.faces);
         } catch (err) {
             idleMsg.textContent = 'Error contacting server: ' + err.message;
             idleMsg.hidden = false;

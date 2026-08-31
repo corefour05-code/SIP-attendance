@@ -283,10 +283,10 @@ def report_export_csv(request: Request):
 
     output = io.StringIO()
     writer = csv.writer(output)
-    header = ["Student ID", "Name"] + [f"{d} {s.capitalize()}" for d, s in data["columns"]] + ["Attendance %"]
+    header = ["Student ID", "Name", "Mobile Number"] + [f"{d} {s.capitalize()}" for d, s in data["columns"]] + ["Attendance %"]
     writer.writerow(header)
     for stu in data["students"]:
-        row = [stu["student_id"], stu["name"]]
+        row = [stu["student_id"], stu["name"], stu["mobile_number"] or ""]
         row += ["Present" if stu["cells"][col] else "Absent" for col in data["columns"]]
         row.append(f"{stu['pct']:.1f}")
         writer.writerow(row)
