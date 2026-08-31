@@ -1,8 +1,9 @@
+import os
 import sqlite3
 from pathlib import Path
 from contextlib import contextmanager
 
-DB_PATH = Path(__file__).resolve().parent.parent / "data" / "sip.db"
+DB_PATH = Path(os.environ.get("DB_PATH", str(Path(__file__).resolve().parent.parent / "data" / "sip.db")))
 SCHEMA_PATH = Path(__file__).resolve().parent / "schema.sql"
 
 

@@ -1,3 +1,5 @@
+import os
+
 import cv2
 import numpy as np
 from insightface.app import FaceAnalysis
@@ -6,12 +8,18 @@ from app.config import MIN_DET_SCORE, MIN_FACE_WIDTH_RATIO, BLUR_THRESHOLD
 
 _face_app: FaceAnalysis | None = None
 
+# Defaults to ~/.insightface; on a host with an ephemeral filesystem this
+# should point at the same persistent volume as DB_PATH, so the model
+# doesn't get re-downloaded on every redeploy.
+INSIGHTFACE_ROOT = os.environ.get("INSIGHTFACE_ROOT", "~/.insightface")
+
 
 def get_face_app() -> FaceAnalysis:
     global _face_app
     if _face_app is None:
         _face_app = FaceAnalysis(
             name="buffalo_s",
+            root=INSIGHTFACE_ROOT,
             providers=["CPUExecutionProvider"],
             allowed_modules=["detection", "recognition"],  # skip genderage/landmark — unused, costs time per frame
         )
