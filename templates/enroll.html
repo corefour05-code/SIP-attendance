@@ -1,0 +1,275 @@
+{% extends "base.html" %}
+{% block title %}Enroll — SIP Attendance{% endblock %}
+{% block content %}
+<h1>Enroll Student</h1>
+<p class="subtitle">Ask for their mobile number first — if they're on the pre-registered list, their name comes up to confirm; otherwise register them fresh.</p>
+
+<div class="card" id="lookup-card">
+    <label for="mobile_number">Mobile Number</label>
+    <input type="tel" id="mobile_number" inputmode="numeric" maxlength="10" placeholder="10-digit mobile number" autocomplete="off">
+    <div class="lookup-result" id="lookup-result"></div>
+
+    <div id="new-name-row" style="display:none;">
+        <label for="student_name">Full Name</label>
+        <input type="text" id="student_name" placeholder="e.g. Priya Sharma">
+    </div>
+
+    <button id="start-btn" disabled>Start Camera</button>
+</div>
+
+<div class="card" id="capture-card" style="display:none;">
+    <div class="angle-row" id="angle-row"></div>
+    <div class="instruction" id="instruction"></div>
+
+    <div class="video-wrap">
+        <video id="video" autoplay playsinline muted></video>
+    </div>
+    <canvas id="canvas" style="display:none;"></canvas>
+
+    <div class="status-msg" id="status-msg"></div>
+
+    <div class="controls">
+        <button id="capture-btn">Capture</button>
+        <button id="submit-btn" class="secondary" disabled>Submit Enrollment</button>
+    </div>
+</div>
+
+<div class="card" id="done-card" style="display:none;">
+    <div class="done-banner" id="done-banner"></div>
+</div>
+
+<script>
+const ANGLE_LABELS = {{ angle_labels | tojson }};
+const ANGLE_INSTRUCTIONS = {{ angle_instructions | tojson }};
+
+const mobileInput = document.getElementById('mobile_number');
+const lookupResult = document.getElementById('lookup-result');
+const newNameRow = document.getElementById('new-name-row');
+const studentNameInput = document.getElementById('student_name');
+const startBtn = document.getElementById('start-btn');
+const captureCard = document.getElementById('capture-card');
+const doneCard = document.getElementById('done-card');
+const video = document.getElementById('video');
+const canvas = document.getElementById('canvas');
+const angleRow = document.getElementById('angle-row');
+const instructionEl = document.getElementById('instruction');
+const statusMsg = document.getElementById('status-msg');
+const captureBtn = document.getElementById('capture-btn');
+const submitBtn = document.getElementById('submit-btn');
+
+let currentIndex = 0;
+const capturedPhotos = {}; // angle_label -> embedding array
+let stream = null;
+
+// idle: fewer than 10 digits typed yet
+// checking: lookup request in flight
+// found-empty: pre-registered, no photos yet — ready to attach a capture
+// found-enrolled: pre-registered AND already has photos — blocked, avoid overwrite
+// new: mobile number not on the roster — manual name entry, brand-new student
+let lookupState = 'idle';
+let resolvedStudentId = null;
+let resolvedName = null;
+let lookupTimer = null;
+
+function setLookupResult(kind, text) {
+    lookupResult.className = 'lookup-result' + (kind ? ' ' + kind : '');
+    lookupResult.textContent = text;
+}
+
+function updateStartEnabled() {
+    if (lookupState === 'found-empty') {
+        startBtn.disabled = false;
+    } else if (lookupState === 'new') {
+        startBtn.disabled = !studentNameInput.value.trim();
+    } else {
+        startBtn.disabled = true;
+    }
+}
+
+async function doLookup() {
+    const mobile = mobileInput.value;
+    try {
+        const res = await fetch('/api/students/lookup?mobile=' + encodeURIComponent(mobile));
+        const data = await res.json();
+        if (mobileInput.value !== mobile) return; // number changed while this was in flight
+
+        if (!data.found) {
+            lookupState = 'new';
+            resolvedStudentId = null;
+            resolvedName = null;
+            newNameRow.style.display = 'block';
+            setLookupResult('new', 'Not on the pre-registered list — enter their name to register them now.');
+        } else if (data.has_photos) {
+            lookupState = 'found-enrolled';
+            resolvedStudentId = null;
+            resolvedName = null;
+            setLookupResult('blocked', `Already enrolled as ${data.name} (${data.student_id}) with face photos. Use the Students page to re-capture instead.`);
+        } else {
+            lookupState = 'found-empty';
+            resolvedStudentId = data.student_id;
+            resolvedName = data.name;
+            setLookupResult('found', `${data.name} — ${data.student_id}. Confirm this matches the person in front of you, then start the camera.`);
+        }
+    } catch (err) {
+        lookupState = 'idle';
+        setLookupResult('err', 'Error checking number: ' + err.message);
+    }
+    updateStartEnabled();
+}
+
+mobileInput.addEventListener('input', () => {
+    mobileInput.value = mobileInput.value.replace(/\D/g, '').slice(0, 10);
+    resolvedStudentId = null;
+    resolvedName = null;
+    newNameRow.style.display = 'none';
+    studentNameInput.value = '';
+    clearTimeout(lookupTimer);
+
+    if (mobileInput.value.length !== 10) {
+        lookupState = 'idle';
+        setLookupResult('', '');
+        updateStartEnabled();
+        return;
+    }
+
+    lookupState = 'checking';
+    setLookupResult('', 'Checking…');
+    updateStartEnabled();
+    lookupTimer = setTimeout(doLookup, 300);
+});
+
+studentNameInput.addEventListener('input', updateStartEnabled);
+
+function renderAngleRow() {
+    angleRow.innerHTML = '';
+    ANGLE_LABELS.forEach((label, i) => {
+        const chip = document.createElement('span');
+        chip.className = 'angle-chip';
+        if (capturedPhotos[label]) chip.classList.add('done');
+        else if (i === currentIndex) chip.classList.add('active');
+        chip.textContent = label;
+        angleRow.appendChild(chip);
+    });
+}
+
+function setStatus(msg, kind) {
+    statusMsg.textContent = msg;
+    statusMsg.className = 'status-msg' + (kind ? ' ' + kind : '');
+}
+
+function updateInstruction() {
+    if (currentIndex >= ANGLE_LABELS.length) {
+        instructionEl.textContent = 'All photos captured';
+        captureBtn.disabled = true;
+        submitBtn.disabled = false;
+        return;
+    }
+    const label = ANGLE_LABELS[currentIndex];
+    instructionEl.textContent = ANGLE_INSTRUCTIONS[label];
+}
+
+startBtn.addEventListener('click', async () => {
+    if (lookupState === 'new' && !studentNameInput.value.trim()) {
+        alert('Please enter the student\'s name.');
+        return;
+    }
+    try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
+        video.srcObject = stream;
+    } catch (err) {
+        alert('Could not access camera: ' + err.message);
+        return;
+    }
+    captureCard.style.display = 'block';
+    startBtn.disabled = true;
+    mobileInput.disabled = true;
+    studentNameInput.disabled = true;
+    renderAngleRow();
+    updateInstruction();
+});
+
+captureBtn.addEventListener('click', () => {
+    if (currentIndex >= ANGLE_LABELS.length) return;
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    canvas.toBlob(async (blob) => {
+        setStatus('Checking photo…', '');
+        captureBtn.disabled = true;
+        const formData = new FormData();
+        formData.append('image', blob, 'capture.jpg');
+        try {
+            const res = await fetch('/api/enroll/validate-photo', { method: 'POST', body: formData });
+            const data = await res.json();
+            if (data.ok) {
+                const label = ANGLE_LABELS[currentIndex];
+                capturedPhotos[label] = data.embedding;
+                setStatus('Captured: ' + label, 'ok');
+                currentIndex += 1;
+                renderAngleRow();
+                updateInstruction();
+            } else {
+                setStatus(data.reason || 'Could not validate photo, try again', 'err');
+            }
+        } catch (err) {
+            setStatus('Error contacting server: ' + err.message, 'err');
+        } finally {
+            captureBtn.disabled = currentIndex >= ANGLE_LABELS.length;
+        }
+    }, 'image/jpeg', 0.92);
+});
+
+submitBtn.addEventListener('click', async () => {
+    submitBtn.disabled = true;
+    setStatus('Submitting enrollment…', '');
+    const photos = ANGLE_LABELS.map(label => ({ angle_label: label, embedding: capturedPhotos[label] }));
+
+    try {
+        let res, data, displayId, displayName;
+
+        if (lookupState === 'found-empty') {
+            // Pre-registered student — attach this capture to their existing ID.
+            res = await fetch(`/api/students/${resolvedStudentId}/recapture`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ photos }),
+            });
+            data = await res.json();
+            displayId = resolvedStudentId;
+            displayName = resolvedName;
+        } else {
+            // Not on the roster — brand-new student, system assigns the ID.
+            res = await fetch('/api/enroll/submit', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name: studentNameInput.value.trim(),
+                    mobile_number: mobileInput.value,
+                    photos: photos,
+                }),
+            });
+            data = await res.json();
+            displayId = data.student_id;
+            displayName = studentNameInput.value.trim();
+        }
+
+        if (data.ok) {
+            if (stream) stream.getTracks().forEach(t => t.stop());
+            captureCard.style.display = 'none';
+            doneCard.style.display = 'block';
+            document.getElementById('done-banner').textContent =
+                'Enrolled ' + displayId + ' — ' + displayName + '. Reloading for next student…';
+            setTimeout(() => window.location.reload(), 1800);
+        } else {
+            setStatus(data.reason || 'Enrollment failed', 'err');
+            submitBtn.disabled = false;
+        }
+    } catch (err) {
+        setStatus('Error contacting server: ' + err.message, 'err');
+        submitBtn.disabled = false;
+    }
+});
+</script>
+{% endblock %}

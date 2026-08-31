@@ -1,0 +1,213 @@
+{% extends "base.html" %}
+{% block title %}Edit {{ student.student_id }} — SIP Attendance{% endblock %}
+{% block content %}
+<h1>Edit Student</h1>
+<p class="subtitle"><a href="/students">&larr; Back to Students</a></p>
+
+<div class="card">
+    <div class="field-row">
+        <div>
+            <label>Student ID</label>
+            <input type="text" value="{{ student.student_id }}" disabled>
+        </div>
+        <div>
+            <label for="student_name">Full Name</label>
+            <input type="text" id="student_name" value="{{ student.name }}">
+        </div>
+        <div>
+            <label for="student_mobile">Mobile Number</label>
+            <input type="tel" id="student_mobile" inputmode="numeric" maxlength="10" value="{{ student.mobile_number or '' }}">
+        </div>
+    </div>
+    <button id="save-name-btn">Save</button>
+    <span class="inline-msg" id="name-msg"></span>
+</div>
+
+<div class="card">
+    <h2 class="card-title">Re-capture Face Photos</h2>
+    <p class="subtitle">Only do this if the student's stored photos are outdated or poor quality. Saving replaces all 5 existing photos.</p>
+
+    <div id="pre-capture">
+        <button id="start-btn">Start Camera</button>
+    </div>
+
+    <div id="capture-card" style="display:none;">
+        <div class="angle-row" id="angle-row"></div>
+        <div class="instruction" id="instruction"></div>
+
+        <div class="video-wrap">
+            <video id="video" autoplay playsinline muted></video>
+        </div>
+        <canvas id="canvas" style="display:none;"></canvas>
+
+        <div class="status-msg" id="status-msg"></div>
+
+        <div class="controls">
+            <button id="capture-btn">Capture</button>
+            <button id="submit-btn" class="secondary" disabled>Save New Photos</button>
+        </div>
+    </div>
+
+    <div id="done-card" style="display:none;">
+        <div class="done-banner" id="done-banner"></div>
+    </div>
+</div>
+
+<script>
+const STUDENT_ID = {{ student.student_id | tojson }};
+const ANGLE_LABELS = {{ angle_labels | tojson }};
+const ANGLE_INSTRUCTIONS = {{ angle_instructions | tojson }};
+
+const saveNameBtn = document.getElementById('save-name-btn');
+const nameMsg = document.getElementById('name-msg');
+const studentNameInput = document.getElementById('student_name');
+const studentMobileInput = document.getElementById('student_mobile');
+
+studentMobileInput.addEventListener('input', () => {
+    studentMobileInput.value = studentMobileInput.value.replace(/\D/g, '').slice(0, 10);
+});
+
+saveNameBtn.addEventListener('click', async () => {
+    const name = studentNameInput.value.trim();
+    if (!name) { alert('Name is required.'); return; }
+    saveNameBtn.disabled = true;
+    nameMsg.textContent = 'Saving…';
+    nameMsg.className = 'inline-msg';
+    try {
+        const res = await fetch(`/api/students/${STUDENT_ID}/update`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, mobile_number: studentMobileInput.value }),
+        });
+        const data = await res.json();
+        if (data.ok) {
+            nameMsg.textContent = 'Saved';
+            nameMsg.className = 'inline-msg ok';
+        } else {
+            nameMsg.textContent = data.reason || 'Could not save';
+            nameMsg.className = 'inline-msg err';
+        }
+    } catch (err) {
+        nameMsg.textContent = 'Error: ' + err.message;
+        nameMsg.className = 'inline-msg err';
+    } finally {
+        saveNameBtn.disabled = false;
+    }
+});
+
+const preCapture = document.getElementById('pre-capture');
+const startBtn = document.getElementById('start-btn');
+const captureCard = document.getElementById('capture-card');
+const doneCard = document.getElementById('done-card');
+const video = document.getElementById('video');
+const canvas = document.getElementById('canvas');
+const angleRow = document.getElementById('angle-row');
+const instructionEl = document.getElementById('instruction');
+const statusMsg = document.getElementById('status-msg');
+const captureBtn = document.getElementById('capture-btn');
+const submitBtn = document.getElementById('submit-btn');
+
+let currentIndex = 0;
+const capturedPhotos = {};
+let stream = null;
+
+function renderAngleRow() {
+    angleRow.innerHTML = '';
+    ANGLE_LABELS.forEach((label, i) => {
+        const chip = document.createElement('span');
+        chip.className = 'angle-chip';
+        if (capturedPhotos[label]) chip.classList.add('done');
+        else if (i === currentIndex) chip.classList.add('active');
+        chip.textContent = label;
+        angleRow.appendChild(chip);
+    });
+}
+
+function setStatus(msg, kind) {
+    statusMsg.textContent = msg;
+    statusMsg.className = 'status-msg' + (kind ? ' ' + kind : '');
+}
+
+function updateInstruction() {
+    if (currentIndex >= ANGLE_LABELS.length) {
+        instructionEl.textContent = 'All photos captured';
+        captureBtn.disabled = true;
+        submitBtn.disabled = false;
+        return;
+    }
+    instructionEl.textContent = ANGLE_INSTRUCTIONS[ANGLE_LABELS[currentIndex]];
+}
+
+startBtn.addEventListener('click', async () => {
+    try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
+        video.srcObject = stream;
+    } catch (err) {
+        alert('Could not access camera: ' + err.message);
+        return;
+    }
+    preCapture.style.display = 'none';
+    captureCard.style.display = 'block';
+    renderAngleRow();
+    updateInstruction();
+});
+
+captureBtn.addEventListener('click', () => {
+    if (currentIndex >= ANGLE_LABELS.length) return;
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    canvas.toBlob(async (blob) => {
+        setStatus('Checking photo…', '');
+        captureBtn.disabled = true;
+        const formData = new FormData();
+        formData.append('image', blob, 'capture.jpg');
+        try {
+            const res = await fetch('/api/enroll/validate-photo', { method: 'POST', body: formData });
+            const data = await res.json();
+            if (data.ok) {
+                const label = ANGLE_LABELS[currentIndex];
+                capturedPhotos[label] = data.embedding;
+                setStatus('Captured: ' + label, 'ok');
+                currentIndex += 1;
+                renderAngleRow();
+                updateInstruction();
+            } else {
+                setStatus(data.reason || 'Could not validate photo, try again', 'err');
+            }
+        } catch (err) {
+            setStatus('Error contacting server: ' + err.message, 'err');
+        } finally {
+            captureBtn.disabled = currentIndex >= ANGLE_LABELS.length;
+        }
+    }, 'image/jpeg', 0.92);
+});
+
+submitBtn.addEventListener('click', async () => {
+    submitBtn.disabled = true;
+    setStatus('Saving new photos…', '');
+    const photos = ANGLE_LABELS.map(label => ({ angle_label: label, embedding: capturedPhotos[label] }));
+    try {
+        const res = await fetch(`/api/students/${STUDENT_ID}/recapture`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ photos }),
+        });
+        const data = await res.json();
+        if (data.ok) {
+            if (stream) stream.getTracks().forEach(t => t.stop());
+            captureCard.style.display = 'none';
+            doneCard.style.display = 'block';
+            document.getElementById('done-banner').textContent = 'Face photos updated for ' + STUDENT_ID + '.';
+        } else {
+            setStatus(data.reason || 'Save failed', 'err');
+            submitBtn.disabled = false;
+        }
+    } catch (err) {
+        setStatus('Error contacting server: ' + err.message, 'err');
+        submitBtn.disabled = false;
+    }
+});
+</script>
+{% endblock %}

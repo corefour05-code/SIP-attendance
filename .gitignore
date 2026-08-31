@@ -1,0 +1,25 @@
+# Virtual environment
+venv/
+__pycache__/
+*.pyc
+
+# Database — contains real student PII and biometric data
+data/
+*.db
+*.db-shm
+*.db-wal
+
+# Real student roster exports
+*.csv
+
+# TLS certs / keys
+dev-cert/
+*.pem
+
+# Runtime logs and pid files
+*.log
+*.pid
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db

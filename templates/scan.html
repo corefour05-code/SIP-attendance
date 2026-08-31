@@ -1,0 +1,273 @@
+{% extends "base.html" %}
+{% block title %}Scan — SIP Attendance{% endblock %}
+{% block content %}
+<h1>Attendance Scanner</h1>
+<p class="subtitle">Point the camera at a student to mark today's session automatically.</p>
+
+<div class="card">
+    <div class="video-wrap">
+        <video id="video" autoplay playsinline muted></video>
+        <canvas id="overlay"></canvas>
+        <div class="scan-idle-msg" id="scan-idle-msg">Starting camera…</div>
+    </div>
+
+    <div class="controls">
+        <button id="toggle-btn">Pause</button>
+        <button id="switch-btn" class="secondary" hidden>Switch Camera</button>
+    </div>
+</div>
+
+<script>
+const video = document.getElementById('video');
+const overlay = document.getElementById('overlay');
+const octx = overlay.getContext('2d');
+const idleMsg = document.getElementById('scan-idle-msg');
+const toggleBtn = document.getElementById('toggle-btn');
+const switchBtn = document.getElementById('switch-btn');
+const captureCanvas = document.createElement('canvas');
+
+let stream = null;
+let running = true;
+// 'environment' (rear camera) by default — scanning is usually someone
+// holding the phone up and pointing it at another person, like a QR scan.
+// Ignored harmlessly on a single-camera desktop webcam.
+let facingMode = 'environment';
+
+// Small idle gap between the end of one scan and the start of the next.
+// Requests are never overlapped — each poll fully resolves before the next
+// frame is captured — so results always land in order and the box never
+// jumps back to a stale position.
+const POLL_GAP_MS = 60;
+
+const COLORS = {
+    ok: '#1f7a52',
+    already: '#9a6a12',
+    unknown: '#b3261e',
+};
+
+function resizeOverlay() {
+    // Assigning canvas.width/height clears the canvas as a side effect, even
+    // when set to the same value it already had. This was being called on
+    // every single scan iteration (from captureBlob), which wiped the drawn
+    // box right before every capture — the actual cause of the flicker, not
+    // detection recall. Only touch it when the size actually changed.
+    const w = video.clientWidth;
+    const h = video.clientHeight;
+    if (overlay.width !== w || overlay.height !== h) {
+        overlay.width = w;
+        overlay.height = h;
+    }
+}
+window.addEventListener('resize', resizeOverlay);
+
+function roundRectPath(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+}
+
+// Maps a bbox in the captured frame's native pixel space to the video
+// element's displayed (object-fit: cover) box.
+function mapBbox(bbox) {
+    if (!video.videoWidth || !video.videoHeight || !overlay.width || !overlay.height) return null;
+    const vw = video.videoWidth, vh = video.videoHeight;
+    const dw = overlay.width, dh = overlay.height;
+    const scale = Math.max(dw / vw, dh / vh);
+    const offX = (vw * scale - dw) / 2;
+    const offY = (vh * scale - dh) / 2;
+    const [x1, y1, x2, y2] = bbox;
+    return [x1 * scale - offX, y1 * scale - offY, x2 * scale - offX, y2 * scale - offY];
+}
+
+function sessionSub(face) {
+    if (!face.session) return face.student_id || '';
+    const label = face.session.charAt(0).toUpperCase() + face.session.slice(1);
+    return `${face.student_id}  ·  ${label}${face.already_marked ? ' (already marked)' : ' marked'}`;
+}
+
+function drawFace(face) {
+    const mapped = mapBbox(face.bbox);
+    if (!mapped) return;
+    const [x1, y1, x2, y2] = mapped;
+
+    const kind = face.status === 'match' ? (face.already_marked ? 'already' : 'ok') : 'unknown';
+    const label = face.status === 'match' ? face.name : 'Unknown';
+    const sub = face.status === 'match' ? sessionSub(face) : 'Not enrolled';
+    const color = COLORS[kind];
+
+    octx.lineWidth = 2.5;
+    octx.strokeStyle = color;
+    roundRectPath(octx, x1, y1, x2 - x1, y2 - y1, 10);
+    octx.stroke();
+
+    const padX = 10;
+    const tagH = 40;
+    octx.font = '600 15px Inter, system-ui, sans-serif';
+    const labelW = octx.measureText(label).width;
+    octx.font = '500 11.5px Inter, system-ui, sans-serif';
+    const subW = octx.measureText(sub).width;
+    const tagW = Math.max(labelW, subW) + padX * 2;
+
+    let tagX = Math.max(4, Math.min(x1, overlay.width - tagW - 4));
+    let tagY = y1 - tagH - 6;
+    if (tagY < 0) tagY = Math.min(y2 + 6, overlay.height - tagH - 4);
+
+    octx.fillStyle = color;
+    roundRectPath(octx, tagX, tagY, tagW, tagH, 6);
+    octx.fill();
+
+    octx.fillStyle = '#ffffff';
+    octx.textBaseline = 'top';
+    octx.font = '600 15px Inter, system-ui, sans-serif';
+    octx.fillText(label, tagX + padX, tagY + 5);
+    octx.font = '500 11.5px Inter, system-ui, sans-serif';
+    octx.globalAlpha = 0.88;
+    octx.fillText(sub, tagX + padX, tagY + 23);
+    octx.globalAlpha = 1;
+}
+
+// No frame-by-frame detector has 100% recall on live video — a blink, a
+// hint of motion blur, or auto-exposure adjusting can make a single poll
+// come back with zero faces even though the person hasn't moved. Treat the
+// box as a track: keep showing the last-seen face(s) through a brief gap in
+// detection, and only actually clear once nothing has been seen for a real
+// stretch of time (i.e. the face genuinely left frame). Time-based, not
+// frame-count-based, since poll cadence varies with server load.
+let lastFaces = null;
+let lastSeenAt = 0;
+const TRACK_PERSIST_MS = 900;
+
+function render(faces) {
+    const now = Date.now();
+    if (faces && faces.length > 0) {
+        lastFaces = faces;
+        lastSeenAt = now;
+    } else if (lastFaces && now - lastSeenAt < TRACK_PERSIST_MS) {
+        faces = lastFaces; // brief gap — keep the track alive at its last known position
+    } else {
+        lastFaces = null;
+        faces = null;
+    }
+
+    octx.clearRect(0, 0, overlay.width, overlay.height);
+    if (!faces || faces.length === 0) {
+        idleMsg.textContent = 'Looking for a face…';
+        idleMsg.hidden = false;
+        return;
+    }
+    idleMsg.hidden = true;
+    faces.forEach(drawFace);
+}
+
+async function openCamera(mode) {
+    return navigator.mediaDevices.getUserMedia({
+        video: { width: 640, height: 480, facingMode: { ideal: mode } },
+    });
+}
+
+async function updateSwitchVisibility() {
+    try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const cams = devices.filter((d) => d.kind === 'videoinput');
+        switchBtn.hidden = cams.length < 2;
+    } catch (err) {
+        switchBtn.hidden = true;
+    }
+}
+
+async function init() {
+    try {
+        stream = await openCamera(facingMode);
+        video.srcObject = stream;
+        video.addEventListener('loadedmetadata', resizeOverlay);
+        idleMsg.textContent = 'Looking for a face…';
+        idleMsg.hidden = false;
+        updateSwitchVisibility();
+    } catch (err) {
+        idleMsg.textContent = 'Could not access camera: ' + err.message;
+        idleMsg.hidden = false;
+        running = false;
+    }
+}
+
+switchBtn.addEventListener('click', async () => {
+    const nextMode = facingMode === 'environment' ? 'user' : 'environment';
+    switchBtn.disabled = true;
+    try {
+        const newStream = await openCamera(nextMode);
+        if (stream) stream.getTracks().forEach((t) => t.stop());
+        stream = newStream;
+        video.srcObject = stream;
+        facingMode = nextMode;
+        lastFaces = null;
+        lastSeenAt = 0;
+        octx.clearRect(0, 0, overlay.width, overlay.height);
+    } catch (err) {
+        idleMsg.textContent = 'Could not switch camera: ' + err.message;
+        idleMsg.hidden = false;
+    } finally {
+        switchBtn.disabled = false;
+    }
+});
+
+function wait(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function captureBlob() {
+    resizeOverlay();
+    captureCanvas.width = video.videoWidth;
+    captureCanvas.height = video.videoHeight;
+    captureCanvas.getContext('2d').drawImage(video, 0, 0, captureCanvas.width, captureCanvas.height);
+    return new Promise((resolve) => captureCanvas.toBlob(resolve, 'image/jpeg', 0.85));
+}
+
+// Scans back-to-back: the next frame is captured the instant the previous
+// response comes back, so every box tracks continuously — the only latency
+// is one real round trip to the server, no artificial pause layered on top.
+async function scanLoop() {
+    while (true) {
+        if (!running || video.videoWidth === 0) {
+            await wait(150);
+            continue;
+        }
+        try {
+            const blob = await captureBlob();
+            if (!blob) continue;
+            const formData = new FormData();
+            formData.append('image', blob, 'frame.jpg');
+            const res = await fetch('/api/scan', { method: 'POST', body: formData });
+            const data = await res.json();
+            render(data.faces);
+        } catch (err) {
+            idleMsg.textContent = 'Error contacting server: ' + err.message;
+            idleMsg.hidden = false;
+            await wait(500);
+        }
+        await wait(POLL_GAP_MS);
+    }
+}
+
+toggleBtn.addEventListener('click', () => {
+    running = !running;
+    toggleBtn.textContent = running ? 'Pause' : 'Resume';
+    lastFaces = null;
+    lastSeenAt = 0;
+    if (running) {
+        idleMsg.textContent = 'Looking for a face…';
+        idleMsg.hidden = false;
+    } else {
+        octx.clearRect(0, 0, overlay.width, overlay.height);
+        idleMsg.textContent = 'Paused';
+        idleMsg.hidden = false;
+    }
+});
+
+init();
+scanLoop();
+</script>
+{% endblock %}

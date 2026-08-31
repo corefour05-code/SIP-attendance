@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% block title %}Report — SIP Attendance{% endblock %}
+{% block container_class %}wide{% endblock %}
+{% block content %}
+<h1>Attendance Report</h1>
+<p class="subtitle">Filter, review, and export attendance for the induction program.</p>
+<div class="stat-chips">
+    <span class="stat-chip"><strong>{{ students|length }}</strong>&nbsp;of {{ total_enrolled }} students shown</span>
+    <span class="stat-chip"><strong>{{ columns|length }}</strong>&nbsp;session(s) in range</span>
+    <span class="stat-chip">{{ date_from }} → {{ date_to }}</span>
+</div>
+
+<form id="filter-form" method="get" action="/report" class="filter-bar">
+    <div>
+        <label for="from">From</label>
+        <input type="date" id="from" name="from" value="{{ date_from }}">
+    </div>
+    <div>
+        <label for="to">To</label>
+        <input type="date" id="to" name="to" value="{{ date_to }}">
+    </div>
+    <div>
+        <label for="session">Session</label>
+        <select id="session" name="session">
+            <option value="all" {% if session_filter == 'all' %}selected{% endif %}>All</option>
+            <option value="morning" {% if session_filter == 'morning' %}selected{% endif %}>Morning</option>
+            <option value="afternoon" {% if session_filter == 'afternoon' %}selected{% endif %}>Afternoon</option>
+        </select>
+    </div>
+    <div>
+        <label for="status">Attendance</label>
+        <select id="status" name="status">
+            <option value="all" {% if status_filter == 'all' %}selected{% endif %}>All students</option>
+            <option value="absent" {% if status_filter == 'absent' %}selected{% endif %}>Absent (missed ≥1 session)</option>
+            <option value="present" {% if status_filter == 'present' %}selected{% endif %}>Fully present</option>
+        </select>
+    </div>
+    <div class="filter-actions">
+        <button type="submit">Apply Filters</button>
+    </div>
+</form>
+
+<div class="search-export-row">
+    <input type="text" id="search" placeholder="Search by name or ID" value="{{ q }}">
+    <a id="csv-link" class="btn-link" href="#">Download CSV</a>
+    <a id="pdf-link" class="btn-link" href="#">Download PDF</a>
+</div>
+
+<div class="table-scroll">
+<table id="report-table" class="data-table">
+    <thead>
+        <tr>
+            <th class="sticky-col">ID</th>
+            <th class="sticky-col name-col">Name</th>
+            {% for d, s in columns %}
+            <th>{{ d }}<br>{{ s|capitalize }}</th>
+            {% endfor %}
+            <th>%</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for stu in students %}
+        <tr data-id="{{ stu.student_id }}" data-name="{{ stu.name }}">
+            <td class="sticky-col">{{ stu.student_id }}</td>
+            <td class="sticky-col name-col">{{ stu.name }}</td>
+            {% for col in columns %}
+            <td>
+                {% if stu.cells[col] %}
+                <span class="badge present">Present</span>
+                {% else %}
+                <span class="badge absent">Absent</span>
+                {% endif %}
+            </td>
+            {% endfor %}
+            <td class="pct-col">{{ '%.1f'|format(stu.pct) }}%</td>
+        </tr>
+        {% endfor %}
+        {% if not students %}
+        <tr><td colspan="{{ columns|length + 3 }}" class="empty-row">No students match the current filters.</td></tr>
+        {% endif %}
+    </tbody>
+</table>
+</div>
+
+<script>
+function currentParams() {
+    const params = new URLSearchParams();
+    params.set('from', document.getElementById('from').value);
+    params.set('to', document.getElementById('to').value);
+    params.set('session', document.getElementById('session').value);
+    params.set('status', document.getElementById('status').value);
+    const q = document.getElementById('search').value.trim();
+    if (q) params.set('q', q);
+    return params;
+}
+
+function updateExportLinks() {
+    const params = currentParams();
+    document.getElementById('csv-link').href = '/report/export.csv?' + params.toString();
+    document.getElementById('pdf-link').href = '/report/export.pdf?' + params.toString();
+}
+
+function filterRows() {
+    const q = document.getElementById('search').value.trim().toLowerCase();
+    document.querySelectorAll('#report-table tbody tr').forEach(tr => {
+        if (!tr.dataset.id) return;
+        const id = tr.dataset.id.toLowerCase();
+        const name = tr.dataset.name.toLowerCase();
+        tr.style.display = (!q || id.includes(q) || name.includes(q)) ? '' : 'none';
+    });
+}
+
+document.getElementById('search').addEventListener('input', () => { filterRows(); updateExportLinks(); });
+document.getElementById('from').addEventListener('change', updateExportLinks);
+document.getElementById('to').addEventListener('change', updateExportLinks);
+document.getElementById('session').addEventListener('change', updateExportLinks);
+document.getElementById('status').addEventListener('change', updateExportLinks);
+updateExportLinks();
+</script>
+{% endblock %}

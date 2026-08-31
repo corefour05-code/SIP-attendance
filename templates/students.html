@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+{% block title %}Students — SIP Attendance{% endblock %}
+{% block container_class %}wide{% endblock %}
+{% block content %}
+<h1>Students</h1>
+<p class="subtitle">Edit a student to fix their name or re-capture face photos.</p>
+
+<div class="tab-row">
+    <button class="tab-btn active" data-tab="enrolled">Enrolled <span class="tab-count">{{ students|selectattr('photo_count', 'ge', 5)|list|length }}</span></button>
+    <button class="tab-btn" data-tab="pending">Pending capture <span class="tab-count">{{ students|rejectattr('photo_count', 'ge', 5)|list|length }}</span></button>
+</div>
+
+<div class="search-export-row">
+    <input type="text" id="search" placeholder="Search by name, ID, or mobile">
+    <a href="/enroll" class="btn-link">+ Enroll New Student</a>
+</div>
+
+<div class="table-scroll">
+<table id="students-table" class="data-table">
+    <thead>
+        <tr>
+            <th class="sticky-col">ID</th>
+            <th class="sticky-col name-col">Name</th>
+            <th>Mobile</th>
+            <th>Enrolled</th>
+            <th>Face Photos</th>
+            <th></th>
+            <th></th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for stu in students %}
+        <tr data-id="{{ stu.student_id }}" data-name="{{ stu.name }}" data-mobile="{{ stu.mobile_number or '' }}" data-status="{{ 'enrolled' if stu.photo_count >= 5 else 'pending' }}">
+            <td class="sticky-col">{{ stu.student_id }}</td>
+            <td class="sticky-col name-col">{{ stu.name }}</td>
+            <td>{{ stu.mobile_number or '—' }}</td>
+            <td>{{ stu.created_at[:10] if stu.created_at else '—' }}</td>
+            <td>
+                {% if stu.photo_count >= 5 %}
+                <span class="badge present">{{ stu.photo_count }} photos</span>
+                {% else %}
+                <span class="badge absent">{{ stu.photo_count }} photos</span>
+                {% endif %}
+            </td>
+            <td><a href="/students/{{ stu.student_id }}/edit" class="btn-link btn-link-sm">Edit</a></td>
+            <td><button class="btn-danger btn-link-sm" data-delete-id="{{ stu.student_id }}" data-delete-name="{{ stu.name }}">Delete</button></td>
+        </tr>
+        {% endfor %}
+        {% if not students %}
+        <tr><td colspan="7" class="empty-row">No students enrolled yet. <a href="/enroll">Enroll the first one</a>.</td></tr>
+        {% endif %}
+        <tr id="no-match-row" class="js-empty-row" style="display:none;"><td colspan="7" class="empty-row"></td></tr>
+    </tbody>
+</table>
+</div>
+
+<script>
+let activeTab = 'enrolled';
+const noMatchRow = document.getElementById('no-match-row');
+
+function filterRows() {
+    const q = document.getElementById('search').value.trim().toLowerCase();
+    let visibleCount = 0;
+    document.querySelectorAll('#students-table tbody tr').forEach(tr => {
+        if (!tr.dataset.id) return;
+        const id = tr.dataset.id.toLowerCase();
+        const name = tr.dataset.name.toLowerCase();
+        const mobile = tr.dataset.mobile.toLowerCase();
+        const matchesTab = tr.dataset.status === activeTab;
+        const matchesSearch = !q || id.includes(q) || name.includes(q) || mobile.includes(q);
+        const show = matchesTab && matchesSearch;
+        tr.style.display = show ? '' : 'none';
+        if (show) visibleCount += 1;
+    });
+
+    if (visibleCount === 0) {
+        noMatchRow.style.display = '';
+        noMatchRow.querySelector('td').textContent = q
+            ? 'No matches in this view.'
+            : (activeTab === 'enrolled' ? 'No one has been face-captured yet.' : 'Nobody pending — everyone on the roster is captured.');
+    } else {
+        noMatchRow.style.display = 'none';
+    }
+}
+document.getElementById('search').addEventListener('input', filterRows);
+
+document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        activeTab = btn.dataset.tab;
+        filterRows();
+    });
+});
+
+filterRows();
+
+document.querySelectorAll('[data-delete-id]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+        const id = btn.dataset.deleteId;
+        const name = btn.dataset.deleteName;
+        if (!confirm(`Delete ${id} — ${name}? This removes their face photos and attendance history. This cannot be undone.`)) {
+            return;
+        }
+        btn.disabled = true;
+        try {
+            const res = await fetch(`/api/students/${id}/delete`, { method: 'POST' });
+            const data = await res.json();
+            if (data.ok) {
+                btn.closest('tr').remove();
+            } else {
+                alert(data.reason || 'Could not delete student');
+                btn.disabled = false;
+            }
+        } catch (err) {
+            alert('Error contacting server: ' + err.message);
+            btn.disabled = false;
+        }
+    });
+});
+</script>
+{% endblock %}
