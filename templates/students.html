@@ -1,92 +1,137 @@
 {% extends "base.html" %}
-{% block title %}Staff Directory — {{ hotel_name }}{% endblock %}
+{% block title %}Staff Directory — {{ hotel_name or 'Hotel' }}{% endblock %}
 {% block container_class %}wide{% endblock %}
 
 {% block content %}
 <div class="page-header">
     <div>
-        <h1>Hotel Staff Directory</h1>
-        <p class="subtitle">Manage staff biometric profiles, contact numbers, and monitor daily shift hours.</p>
+        <div class="badge-tag">Staff Management</div>
+        <h1>Staff Directory &amp; Roster</h1>
+        <p class="subtitle">Manage hotel worker biometric profiles, phone numbers, and monitor daily shift hours.</p>
     </div>
-    <a href="/enroll" class="btn">+ Enroll New Staff</a>
+    <div class="header-actions">
+        <a href="/enroll" class="btn btn-primary">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><line x1="20" y1="8" x2="20" y2="14"></line><line x1="23" y1="11" x2="17" y2="11"></line></svg>
+            + Enroll New Staff
+        </a>
+    </div>
 </div>
 
-<div class="filter-presets" style="margin-bottom: 20px;">
-    <button type="button" class="preset-chip active tab-btn" data-tab="all">
-        All Staff ({{ students|length }})
-    </button>
-    <button type="button" class="preset-chip tab-btn" data-tab="working">
-        Working Today ({{ students|selectattr('today_status')|list|length }})
-    </button>
-    <button type="button" class="preset-chip tab-btn" data-tab="pending">
-        Pending Photo ({{ students|rejectattr('photo_count', 'ge', 1)|list|length }})
-    </button>
+<div class="filter-presets-wrapper">
+    <div class="filter-presets">
+        <button type="button" class="preset-chip active tab-btn" data-tab="all">
+            All Staff ({{ students|length }})
+        </button>
+        <button type="button" class="preset-chip tab-btn" data-tab="working">
+            Working Today ({{ students|selectattr('today_status')|list|length }})
+        </button>
+        <button type="button" class="preset-chip tab-btn" data-tab="pending">
+            Pending Photo ({{ students|rejectattr('photo_count', 'ge', 1)|list|length }})
+        </button>
+    </div>
 </div>
 
-<div class="search-export-row">
-    <input type="text" id="search" placeholder="Search by Staff Name, ID (e.g. HTL001), or Phone number…">
+<div class="search-bar-card">
+    <div class="search-input-wrapper">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+        <input type="text" id="search" placeholder="Search by Staff Name, ID (e.g. HTL001), or Phone number…">
+    </div>
 </div>
 
-<div class="table-scroll">
-    <table id="staff-table" class="data-table">
-        <thead>
-            <tr>
-                <th>Staff ID</th>
-                <th>Staff Name</th>
-                <th>Mobile Number</th>
-                <th>Today's First IN</th>
-                <th>Today's Last OUT</th>
-                <th>Today's Hours</th>
-                <th>Biometrics</th>
-                <th>Actions</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for s in students %}
-            <tr data-id="{{ s.student_id }}" data-name="{{ s.name }}" data-mobile="{{ s.mobile_number or '' }}" data-working="{{ 'yes' if s.today_status else 'no' }}" data-enrolled="{{ 'yes' if s.photo_count >= 1 else 'no' }}">
-                <td><strong style="color: var(--gold-bright);">{{ s.student_id }}</strong></td>
-                <td><strong>{{ s.name }}</strong></td>
-                <td>{{ s.mobile_number or '—' }}</td>
-                <td>{{ s.first_in[11:16] if s.first_in else '—' }}</td>
-                <td>{{ s.last_out[11:16] if s.last_out else '—' }}</td>
-                <td>
-                    {% if s.total_hours and s.total_hours > 0 %}
-                    <strong style="color: var(--green);">{{ "%.2f"|format(s.total_hours) }} hrs</strong>
-                    {% elif s.first_in %}
-                    <span class="badge in">Clocked In</span>
-                    {% else %}
-                    <span style="color: var(--text-muted);">—</span>
-                    {% endif %}
-                </td>
-                <td>
-                    {% if s.photo_count >= 1 %}
-                    <span class="badge present">✓ Enrolled ({{ s.photo_count }})</span>
-                    {% else %}
-                    <span class="badge absent">● No Photo</span>
-                    {% endif %}
-                </td>
-                <td>
-                    <div style="display: flex; gap: 8px;">
-                        <a href="/staff/{{ s.student_id }}/edit" class="btn-link btn-link-sm">Edit / Recapture</a>
-                        <button type="button" class="btn-danger btn-link-sm" data-delete-id="{{ s.student_id }}" data-delete-name="{{ s.name }}">Delete</button>
-                    </div>
-                </td>
-            </tr>
-            {% endfor %}
-            {% if not students %}
-            <tr>
-                <td colspan="8" style="text-align: center; padding: 40px; color: var(--text-muted);">
-                    No staff members registered yet. <a href="/enroll" style="color: var(--gold);">Enroll your first staff member</a>.
-                </td>
-            </tr>
-            {% endif %}
-            <tr id="no-match-row" style="display: none;">
-                <td colspan="8" style="text-align: center; padding: 30px; color: var(--text-muted);">
-                    No staff members match the current search or filter.
-                </td>
-            </tr>
-        </tbody>
-    </table>
+<div class="table-card">
+    <div class="table-scroll">
+        <table id="staff-table" class="data-table">
+            <thead>
+                <tr>
+                    <th>Staff ID</th>
+                    <th>Staff Member</th>
+                    <th>Mobile Number</th>
+                    <th>Today's First IN</th>
+                    <th>Today's Last OUT</th>
+                    <th>Today's Shift</th>
+                    <th>Face Biometrics</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for s in students %}
+                <tr class="table-row" data-id="{{ s.student_id }}" data-name="{{ s.name }}" data-mobile="{{ s.mobile_number or '' }}" data-working="{{ 'yes' if s.today_status else 'no' }}" data-enrolled="{{ 'yes' if s.photo_count >= 1 else 'no' }}">
+                    <td><span class="cell-id">{{ s.student_id }}</span></td>
+                    <td>
+                        <div class="staff-info-cell">
+                            <span class="staff-avatar-mini">{{ s.name[:1] }}</span>
+                            <strong class="staff-name">{{ s.name }}</strong>
+                        </div>
+                    </td>
+                    <td><span class="cell-mobile">{{ s.mobile_number or '—' }}</span></td>
+                    <td>
+                        {% if s.first_in %}
+                        <span class="time-chip in">{{ s.first_in[11:16] }}</span>
+                        {% else %}
+                        <span class="cell-muted">—</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if s.last_out %}
+                        <span class="time-chip out">{{ s.last_out[11:16] }}</span>
+                        {% else %}
+                        <span class="cell-muted">—</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if s.total_hours and s.total_hours > 0 %}
+                        <div class="duration-cell">
+                            <strong class="duration-text">{{ "%.2f"|format(s.total_hours) }} hrs</strong>
+                        </div>
+                        {% elif s.first_in %}
+                        <span class="status-badge status-working">
+                            <span class="status-dot pulsing"></span> In Shift
+                        </span>
+                        {% else %}
+                        <span class="cell-muted">—</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if s.photo_count >= 1 %}
+                        <span class="status-badge status-present">
+                            <span class="status-dot"></span> Enrolled ({{ s.photo_count }})
+                        </span>
+                        {% else %}
+                        <span class="status-badge status-absent">
+                            <span class="status-dot"></span> No Photo
+                        </span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <div class="action-btn-row">
+                            <a href="/staff/{{ s.student_id }}/edit" class="btn-action-edit">Edit</a>
+                            <button type="button" class="btn-action-delete" data-delete-id="{{ s.student_id }}" data-delete-name="{{ s.name }}">Delete</button>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+                {% if not students %}
+                <tr>
+                    <td colspan="8">
+                        <div class="empty-state">
+                            <div class="empty-icon">👥</div>
+                            <div class="empty-title">No staff members registered yet</div>
+                            <div class="empty-sub"><a href="/enroll" style="color: var(--gold);">Enroll your first staff member</a> to begin shift tracking.</div>
+                        </div>
+                    </td>
+                </tr>
+                {% endif %}
+                <tr id="no-match-row" style="display: none;">
+                    <td colspan="8">
+                        <div class="empty-state">
+                            <div class="empty-title">No matching staff found</div>
+                            <div class="empty-sub">Try searching with a different name or staff ID.</div>
+                        </div>
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
 </div>
 
 <script>
@@ -98,29 +143,31 @@ function filterStaff() {
     const q = searchInput.value.trim().toLowerCase();
     let visible = 0;
 
-    document.querySelectorAll('#staff-table tbody tr').forEach(tr => {
-        if (!tr.dataset.id) return;
-        const sid = tr.dataset.id.toLowerCase();
-        const sname = tr.dataset.name.toLowerCase();
-        const smobile = tr.dataset.mobile.toLowerCase();
+    document.querySelectorAll('#staff-table tbody tr[data-id]').forEach(tr => {
+        const id = tr.dataset.id.toLowerCase();
+        const name = tr.dataset.name.toLowerCase();
+        const mobile = tr.dataset.mobile.toLowerCase();
         const isWorking = tr.dataset.working === 'yes';
         const isEnrolled = tr.dataset.enrolled === 'yes';
 
         let matchesTab = true;
         if (currentTab === 'working') matchesTab = isWorking;
-        if (currentTab === 'pending') matchesTab = !isEnrolled;
+        else if (currentTab === 'pending') matchesTab = !isEnrolled;
 
-        const matchesSearch = !q || sid.includes(q) || sname.includes(q) || smobile.includes(q);
-        const show = matchesTab && matchesSearch;
+        const matchesSearch = !q || id.includes(q) || name.includes(q) || mobile.includes(q);
 
-        tr.style.display = show ? '' : 'none';
-        if (show) visible++;
+        if (matchesTab && matchesSearch) {
+            tr.style.display = '';
+            visible++;
+        } else {
+            tr.style.display = 'none';
+        }
     });
 
-    noMatchRow.style.display = visible === 0 ? '' : 'none';
+    if (noMatchRow) {
+        noMatchRow.style.display = visible === 0 ? '' : 'none';
+    }
 }
-
-searchInput.addEventListener('input', filterStaff);
 
 document.querySelectorAll('.tab-btn').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -131,26 +178,26 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     });
 });
 
-document.querySelectorAll('[data-delete-id]').forEach(btn => {
+searchInput.addEventListener('input', filterStaff);
+
+// Delete confirmation handling
+document.querySelectorAll('button[data-delete-id]').forEach(btn => {
     btn.addEventListener('click', async () => {
-        const id = btn.dataset.deleteId;
-        const name = btn.dataset.deleteName;
-        if (!confirm(`Are you sure you want to delete ${name} (${id})? This will delete their biometric facial data and attendance logs. This action cannot be undone.`)) {
+        const sid = btn.dataset.deleteId;
+        const sname = btn.dataset.deleteName;
+        if (!confirm(`Are you sure you want to delete staff member ${sname} (${sid})? This will permanently remove their biometric profiles.`)) {
             return;
         }
-        btn.disabled = true;
         try {
-            const res = await fetch(`/api/students/${id}/delete`, { method: 'POST' });
+            const res = await fetch(`/api/students/${sid}`, { method: 'DELETE' });
             const data = await res.json();
             if (data.ok) {
-                btn.closest('tr').remove();
+                location.reload();
             } else {
-                alert(data.reason || 'Could not delete staff member');
-                btn.disabled = false;
+                alert('Delete failed: ' + (data.reason || 'Unknown error'));
             }
         } catch (e) {
-            alert('Server error: ' + e.message);
-            btn.disabled = false;
+            alert('Delete request failed.');
         }
     });
 });

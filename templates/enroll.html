@@ -1,10 +1,11 @@
 {% extends "base.html" %}
-{% block title %}Enroll Staff — {{ hotel_name }}{% endblock %}
+{% block title %}Enroll Staff — {{ hotel_name or 'Hotel' }}{% endblock %}
 
 {% block content %}
 <div class="enroll-wrapper">
-    <div class="page-header" style="text-align: center; display: block; margin-bottom: 20px;">
-        <h1>Hotel Staff Face Enrollment</h1>
+    <div class="page-header" style="text-align: center; display: block; margin-bottom: 24px;">
+        <div class="badge-tag">Biometric Registration</div>
+        <h1>Staff Face Enrollment</h1>
         <p class="subtitle">Quick 1-photo biometric registration with automatic multi-perspective augmentation.</p>
     </div>
 

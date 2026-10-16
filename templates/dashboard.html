@@ -1,69 +1,81 @@
 {% extends "base.html" %}
-{% block title %}Owner Dashboard — {{ hotel_name }}{% endblock %}
+{% block title %}Management Dashboard — {{ hotel_name or 'Hotel' }}{% endblock %}
 {% block container_class %}wide{% endblock %}
 
 {% block content %}
 <div class="page-header">
     <div>
+        <div class="badge-tag">Operations Overview</div>
         <h1>Owner &amp; Management Dashboard</h1>
-        <p class="subtitle">Live staff shift attendance, clock-in tracking, and daily work hours for {{ today_date }}.</p>
+        <p class="subtitle">Live staff shift attendance, real-time clock-in tracking, and active work hours for {{ today_date }}.</p>
     </div>
-    <div style="display: flex; gap: 10px;">
-        <a href="/scan" class="btn">Launch Kiosk Terminal</a>
-        <a href="/report?preset=today" class="btn btn-secondary">Today's Timesheet</a>
+    <div class="header-actions">
+        <a href="/scan" class="btn btn-primary">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
+            Launch Kiosk Terminal
+        </a>
+        <a href="/report?preset=today" class="btn btn-secondary">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+            Today's Timesheet
+        </a>
     </div>
 </div>
 
 <div class="kpi-grid">
     <div class="kpi-card">
-        <div class="kpi-label">
-            <span>Total Hotel Staff</span>
-            <span>👥</span>
+        <div class="kpi-top">
+            <span class="kpi-label">Total Hotel Staff</span>
+            <div class="kpi-icon-badge">👥</div>
         </div>
         <div class="kpi-value" id="kpi-total">{{ total_staff }}</div>
-        <div class="kpi-sub">{{ total_enrolled }} face-enrolled</div>
+        <div class="kpi-sub">{{ total_enrolled }} face-enrolled workers</div>
     </div>
 
     <div class="kpi-card">
-        <div class="kpi-label">
-            <span>Present Today</span>
-            <span>🟢</span>
+        <div class="kpi-top">
+            <span class="kpi-label">Present Today</span>
+            <div class="kpi-icon-badge">🟢</div>
         </div>
         <div class="kpi-value" id="kpi-present">{{ present_count }}</div>
         <div class="kpi-sub highlight">
             {% if total_enrolled > 0 %}
-                {{ "%.0f"|format((present_count / total_enrolled) * 100) }}% attendance rate
+                {{ "%.0f"|format((present_count / total_enrolled) * 100) }}% active attendance rate
             {% else %}
-                0%
+                0% rate
             {% endif %}
         </div>
     </div>
 
     <div class="kpi-card">
-        <div class="kpi-label">
-            <span>Clocked In Now</span>
-            <span>⏱️</span>
+        <div class="kpi-top">
+            <span class="kpi-label">Clocked In Now</span>
+            <div class="kpi-icon-badge">⏱️</div>
         </div>
-        <div class="kpi-value" id="kpi-clocked" style="color: var(--gold-bright);">{{ clocked_in_now }}</div>
-        <div class="kpi-sub">Active shift on hotel floor</div>
+        <div class="kpi-value text-gold" id="kpi-clocked">{{ clocked_in_now }}</div>
+        <div class="kpi-sub">Active staff on hotel floor</div>
     </div>
 
     <div class="kpi-card">
-        <div class="kpi-label">
-            <span>Hours Logged Today</span>
-            <span>⚡</span>
+        <div class="kpi-top">
+            <span class="kpi-label">Hours Logged Today</span>
+            <div class="kpi-icon-badge">⚡</div>
         </div>
-        <div class="kpi-value" id="kpi-hours" style="color: var(--green);">{{ total_hours_today }}h</div>
+        <div class="kpi-value text-emerald" id="kpi-hours">{{ total_hours_today }} <span class="kpi-unit">hrs</span></div>
         <div class="kpi-sub">Combined staff shift duration</div>
     </div>
 </div>
 
-<div style="display: grid; grid-template-columns: 2fr 1fr; gap: 24px;">
+<div class="dashboard-grid">
     <!-- Active Shifts Table -->
-    <div class="card" style="margin-bottom: 0;">
-        <div class="card-title">
-            <span>Today's Staff Roster ({{ roster|length }})</span>
-            <span style="font-size: 13px; font-weight: 500; color: var(--text-muted);">First IN → Last OUT</span>
+    <div class="table-card">
+        <div class="table-header-bar">
+            <div class="table-title">
+                <span>Today's Staff Shifts</span>
+                <span class="count-badge" id="roster-count">{{ roster|length }}</span>
+            </div>
+            <div class="table-legend">
+                <span style="font-size: 12px; color: var(--text-muted);">First IN &rarr; Last OUT</span>
+            </div>
         </div>
 
         <div class="table-scroll">
@@ -71,7 +83,7 @@
                 <thead>
                     <tr>
                         <th>Staff ID</th>
-                        <th>Name</th>
+                        <th>Staff Member</th>
                         <th>First IN</th>
                         <th>Last OUT</th>
                         <th>Total Hours</th>
@@ -81,26 +93,43 @@
                 </thead>
                 <tbody id="roster-tbody">
                     {% for r in roster %}
-                    <tr>
-                        <td><strong style="color: var(--gold-bright);">{{ r.staff_id }}</strong></td>
-                        <td><strong>{{ r.name }}</strong></td>
-                        <td>{{ r.first_in }}</td>
-                        <td>{{ r.last_out }}</td>
-                        <td><strong style="color: var(--text-primary);">{{ r.duration_str }}</strong></td>
-                        <td>{{ r.punch_count }}</td>
+                    <tr class="table-row">
+                        <td><span class="cell-id">{{ r.staff_id }}</span></td>
+                        <td>
+                            <div class="staff-info-cell">
+                                <span class="staff-avatar-mini">{{ r.name[:1] }}</span>
+                                <strong class="staff-name">{{ r.name }}</strong>
+                            </div>
+                        </td>
+                        <td><span class="time-chip in">{{ r.first_in }}</span></td>
+                        <td><span class="time-chip out">{{ r.last_out }}</span></td>
+                        <td>
+                            <div class="duration-cell">
+                                <strong class="duration-text">{{ r.duration_str }}</strong>
+                            </div>
+                        </td>
+                        <td><span class="punch-pill">{{ r.punch_count }}</span></td>
                         <td>
                             {% if r.status == 'Working' %}
-                            <span class="badge working">● Working</span>
+                            <span class="status-badge status-working">
+                                <span class="status-dot pulsing"></span> Working
+                            </span>
                             {% else %}
-                            <span class="badge present">✓ Completed</span>
+                            <span class="status-badge status-present">
+                                <span class="status-dot"></span> Completed
+                            </span>
                             {% endif %}
                         </td>
                     </tr>
                     {% endfor %}
                     {% if not roster %}
                     <tr>
-                        <td colspan="7" style="text-align: center; padding: 36px; color: var(--text-muted);">
-                            No attendance punches recorded yet today. Staff scans at the <a href="/scan" style="color: var(--gold);">Kiosk Terminal</a> will appear here instantly.
+                        <td colspan="7">
+                            <div class="empty-state">
+                                <div class="empty-icon">⏳</div>
+                                <div class="empty-title">No attendance punches recorded yet today</div>
+                                <div class="empty-sub">Staff scans at the <a href="/scan" style="color: var(--gold);">Kiosk Terminal</a> will appear here instantly.</div>
+                            </div>
                         </td>
                     </tr>
                     {% endif %}
@@ -109,36 +138,53 @@
         </div>
     </div>
 
-    <!-- Live Recent Punches & Quick Links -->
-    <div style="display: flex; flex-direction: column; gap: 20px;">
-        <div class="card" style="margin-bottom: 0;">
-            <div class="card-title">Recent Activity Feed</div>
-            <div style="display: flex; flex-direction: column; gap: 10px;">
+    <!-- Live Recent Punches & Quick Actions Sidebar -->
+    <div class="dashboard-sidebar">
+        <div class="table-card">
+            <div class="table-header-bar">
+                <div class="table-title">
+                    <span class="status-dot pulsing" style="display: inline-block; margin-right: 6px;"></span>
+                    <span>Live Punch Stream</span>
+                </div>
+            </div>
+            <div class="activity-feed">
                 {% for p in recent_punches %}
-                <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; background: var(--bg); border-radius: var(--radius-sm); border: 1px solid var(--border);">
-                    <div>
-                        <div style="font-weight: 600; font-size: 13px; color: #fff;">{{ p.name }}</div>
-                        <div style="font-size: 11px; color: var(--gold-bright);">{{ p.staff_id }}</div>
+                <div class="activity-item">
+                    <div class="activity-avatar">{{ p.name[:1] }}</div>
+                    <div class="activity-details">
+                        <div class="activity-name">{{ p.name }}</div>
+                        <div class="activity-id">{{ p.staff_id }}</div>
                     </div>
-                    <div style="font-size: 12px; color: var(--text-muted); font-family: monospace;">
+                    <div class="activity-time">
                         {{ p.punch_time[11:16] }}
                     </div>
                 </div>
                 {% endfor %}
                 {% if not recent_punches %}
-                <div style="color: var(--text-muted); font-size: 13px; text-align: center; padding: 16px;">
-                    No recent activity yet.
+                <div class="empty-state" style="padding: 24px 12px;">
+                    <div class="empty-sub">Awaiting first scan of the day...</div>
                 </div>
                 {% endif %}
             </div>
         </div>
 
-        <div class="card" style="margin-bottom: 0;">
-            <div class="card-title">Management Actions</div>
-            <div style="display: flex; flex-direction: column; gap: 10px;">
-                <a href="/enroll" class="btn" style="width: 100%;">+ Register New Staff</a>
-                <a href="/staff" class="btn btn-secondary" style="width: 100%;">View All Staff Directory</a>
-                <a href="/report?preset=week" class="btn btn-secondary" style="width: 100%;">Weekly Timesheet Report</a>
+        <div class="table-card">
+            <div class="table-header-bar">
+                <div class="table-title">Management Links</div>
+            </div>
+            <div class="quick-actions-list">
+                <a href="/enroll" class="btn btn-primary" style="width: 100%;">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><line x1="20" y1="8" x2="20" y2="14"></line><line x1="23" y1="11" x2="17" y2="11"></line></svg>
+                    Register New Staff
+                </a>
+                <a href="/staff" class="btn btn-secondary" style="width: 100%;">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+                    Staff Directory
+                </a>
+                <a href="/report?preset=week" class="btn btn-secondary" style="width: 100%;">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                    Weekly Timesheet Report
+                </a>
             </div>
         </div>
     </div>
@@ -151,12 +197,16 @@ async function refreshDashboardStats() {
         const res = await fetch('/api/dashboard/stats');
         if (!res.ok) return;
         const d = await res.json();
-        document.getElementById('kpi-total').textContent = d.total_staff;
-        document.getElementById('kpi-present').textContent = d.present_count;
-        document.getElementById('kpi-clocked').textContent = d.clocked_in_now;
-        document.getElementById('kpi-hours').textContent = d.total_hours_today + 'h';
+        const totalEl = document.getElementById('kpi-total');
+        const presentEl = document.getElementById('kpi-present');
+        const clockedEl = document.getElementById('kpi-clocked');
+        const hoursEl = document.getElementById('kpi-hours');
+        if (totalEl) totalEl.textContent = d.total_staff;
+        if (presentEl) presentEl.textContent = d.present_count;
+        if (clockedEl) clockedEl.textContent = d.clocked_in_now;
+        if (hoursEl) hoursEl.innerHTML = d.total_hours_today + ' <span class="kpi-unit">hrs</span>';
     } catch (e) {
-        // quiet error on network blip
+        // network blip ignored
     }
 }
 setInterval(refreshDashboardStats, 15000);

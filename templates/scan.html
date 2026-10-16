@@ -1,17 +1,18 @@
 {% extends "base.html" %}
-{% block title %}Kiosk Scanner — {{ hotel_name }}{% endblock %}
+{% block title %}Kiosk Terminal — {{ hotel_name or 'Hotel' }}{% endblock %}
 {% block container_class %}wide{% endblock %}
 
 {% block content %}
 <div class="page-header">
     <div>
-        <h1>Staff Biometric Attendance Terminal</h1>
+        <div class="badge-tag">Biometric Kiosk Terminal</div>
+        <h1>Staff Attendance Scanner</h1>
         <p class="subtitle">Face the camera. The terminal automatically logs your <strong>First IN</strong> and <strong>Last OUT</strong> and calculates your daily shift hours.</p>
     </div>
-    <div style="display: flex; gap: 8px;">
-        <button id="fullscreen-btn" class="secondary">⛶ Fullscreen</button>
-        <button id="switch-btn" class="secondary" hidden>Switch Camera</button>
-        <button id="voice-btn" class="secondary">Voice: On</button>
+    <div class="header-actions">
+        <button id="fullscreen-btn" class="btn btn-secondary">⛶ Fullscreen</button>
+        <button id="switch-btn" class="btn btn-secondary" hidden>Switch Camera</button>
+        <button id="voice-btn" class="btn btn-secondary">Voice: On</button>
     </div>
 </div>
 

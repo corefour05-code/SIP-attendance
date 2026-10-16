@@ -1,4 +1,4 @@
-HOTEL_NAME = "The Grand Luxe Hotel"
+HOTEL_NAME = "Hotel"
 HOTEL_SUBTITLE = "Staff Biometric Attendance & Shift Hours Portal"
 
 # Face Detection & Quality Thresholds

@@ -1,165 +1,242 @@
 {% extends "base.html" %}
-{% block title %}Owner Timesheet Reports — {{ hotel_name }}{% endblock %}
+{% block title %}Shift Timesheets &amp; Reports — {{ hotel_name or 'Hotel' }}{% endblock %}
 {% block container_class %}wide{% endblock %}
 
 {% block content %}
 <div class="page-header">
     <div>
-        <h1>Hotel Staff Timesheets &amp; Reports</h1>
-        <p class="subtitle">Complete audit of worker attendance, morning <strong>First IN</strong>, evening <strong>Last OUT</strong>, and total shift hours worked.</p>
+        <div class="badge-tag">Management Timesheets</div>
+        <h1>Staff Attendance &amp; Shift Reports</h1>
+        <p class="subtitle">Complete audit of worker attendance, morning <strong>First IN</strong>, evening <strong>Last OUT</strong>, and calculated shift work hours.</p>
     </div>
-    <div style="display: flex; gap: 10px;">
-        <a id="csv-link" class="btn" href="#">📥 Export CSV</a>
-        <a id="pdf-link" class="btn btn-secondary" href="#">📄 Export PDF Timesheet</a>
+    <div class="header-actions">
+        <a id="csv-link" class="btn btn-emerald" href="#">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+            Export CSV
+        </a>
+        <a id="pdf-link" class="btn btn-secondary" href="#">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+            Export PDF Timesheet
+        </a>
     </div>
 </div>
 
 <!-- Quick Date Range Presets -->
-<div class="filter-presets">
-    <a href="/report?preset=today" class="preset-chip">Today</a>
-    <a href="/report?preset=yesterday" class="preset-chip">Yesterday</a>
-    <a href="/report?preset=week" class="preset-chip">Last 7 Days</a>
-    <a href="/report?preset=month" class="preset-chip">This Month</a>
+<div class="filter-presets-wrapper">
+    <span class="presets-label">Quick Presets:</span>
+    <div class="filter-presets">
+        <a href="/report?preset=today" class="preset-chip {% if request.query_params.get('preset') == 'today' %}active{% endif %}">Today</a>
+        <a href="/report?preset=yesterday" class="preset-chip {% if request.query_params.get('preset') == 'yesterday' %}active{% endif %}">Yesterday</a>
+        <a href="/report?preset=week" class="preset-chip {% if request.query_params.get('preset') == 'week' %}active{% endif %}">Last 7 Days</a>
+        <a href="/report?preset=month" class="preset-chip {% if request.query_params.get('preset') == 'month' %}active{% endif %}">This Month</a>
+        <a href="/report" class="preset-chip {% if not request.query_params.get('preset') and not request.query_params.get('from') %}active{% endif %}">All Time</a>
+    </div>
 </div>
 
-<!-- Filter Form -->
-<form id="filter-form" method="get" action="/report" class="card" style="padding: 18px 20px; margin-bottom: 20px;">
-    <div class="filter-bar" style="margin-bottom: 0;">
-        <div>
-            <label for="from">From Date</label>
+<!-- Filter Form Card -->
+<form id="filter-form" method="get" action="/report" class="filter-card">
+    <div class="filter-grid">
+        <div class="form-group">
+            <label for="from">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+                From Date
+            </label>
             <input type="date" id="from" name="from" value="{{ date_from }}">
         </div>
-        <div>
-            <label for="to">To Date</label>
+        <div class="form-group">
+            <label for="to">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+                To Date
+            </label>
             <input type="date" id="to" name="to" value="{{ date_to }}">
         </div>
-        <div>
-            <label for="status">Attendance Status</label>
-            <select id="status" name="status">
-                <option value="all" {% if status_filter == 'all' %}selected{% endif %}>All Records (Present &amp; Absent)</option>
-                <option value="present" {% if status_filter == 'present' %}selected{% endif %}>Present Only</option>
-                <option value="absent" {% if status_filter == 'absent' %}selected{% endif %}>Absent Only</option>
-            </select>
+        <div class="form-group">
+            <label for="status">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon></svg>
+                Shift Status
+            </label>
+            <div class="select-wrapper">
+                <select id="status" name="status">
+                    <option value="all" {% if status_filter == 'all' %}selected{% endif %}>All Records (Present &amp; Absent)</option>
+                    <option value="present" {% if status_filter == 'present' %}selected{% endif %}>Present / Completed Only</option>
+                    <option value="absent" {% if status_filter == 'absent' %}selected{% endif %}>Absent Only</option>
+                </select>
+            </div>
         </div>
-        <div>
-            <label for="search">Filter by Worker / ID</label>
-            <input type="text" id="search" name="q" placeholder="Name or Staff ID…" value="{{ q }}">
+        <div class="form-group search-group">
+            <label for="search">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                Filter by Staff / ID
+            </label>
+            <input type="text" id="search" name="q" placeholder="Search by name, ID or mobile..." value="{{ q }}">
         </div>
-        <div style="min-width: 140px; display: flex; align-items: flex-end;">
-            <button type="submit" style="width: 100%;">Apply Filters</button>
+        <div class="form-group btn-group">
+            <button type="submit" class="btn btn-primary">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                Apply Filters
+            </button>
         </div>
     </div>
 </form>
 
-<!-- Summary Statistics Banner -->
-<div class="kpi-grid" style="margin-bottom: 24px;">
-    <div class="kpi-card" style="padding: 16px;">
-        <div class="kpi-label">Shifts Logged</div>
-        <div class="kpi-value" style="font-size: 26px;">{{ total_present_shifts }}</div>
-        <div class="kpi-sub">Across {{ dates_count }} day(s)</div>
+<!-- Summary KPI Grid -->
+<div class="kpi-grid">
+    <div class="kpi-card">
+        <div class="kpi-top">
+            <span class="kpi-label">Shifts Logged</span>
+            <div class="kpi-icon-badge">📋</div>
+        </div>
+        <div class="kpi-value">{{ total_present_shifts }}</div>
+        <div class="kpi-sub">Across {{ dates_count }} day(s) period</div>
     </div>
-    <div class="kpi-card" style="padding: 16px;">
-        <div class="kpi-label">Total Work Hours</div>
-        <div class="kpi-value" style="font-size: 26px; color: var(--green);">{{ total_hours_sum }} hrs</div>
-        <div class="kpi-sub">Combined staff shift time</div>
+
+    <div class="kpi-card">
+        <div class="kpi-top">
+            <span class="kpi-label">Total Work Hours</span>
+            <div class="kpi-icon-badge">⏱️</div>
+        </div>
+        <div class="kpi-value text-emerald">{{ total_hours_sum }} <span class="kpi-unit">hrs</span></div>
+        <div class="kpi-sub">Combined staff shift duration</div>
     </div>
-    <div class="kpi-card" style="padding: 16px;">
-        <div class="kpi-label">Avg Shift Length</div>
-        <div class="kpi-value" style="font-size: 26px; color: var(--gold-bright);">{{ avg_hours }} hrs</div>
-        <div class="kpi-sub">Per worker per shift</div>
+
+    <div class="kpi-card">
+        <div class="kpi-top">
+            <span class="kpi-label">Average Shift Length</span>
+            <div class="kpi-icon-badge">⚡</div>
+        </div>
+        <div class="kpi-value text-gold">{{ avg_hours }} <span class="kpi-unit">hrs</span></div>
+        <div class="kpi-sub">Per worker per present shift</div>
     </div>
-    <div class="kpi-card" style="padding: 16px;">
-        <div class="kpi-label">Period Attendance</div>
-        <div class="kpi-value" style="font-size: 26px;">{{ att_rate }}%</div>
-        <div class="kpi-sub">{{ total_enrolled }} active roster staff</div>
+
+    <div class="kpi-card">
+        <div class="kpi-top">
+            <span class="kpi-label">Period Attendance</span>
+            <div class="kpi-icon-badge">📈</div>
+        </div>
+        <div class="kpi-value">{{ att_rate }}%</div>
+        <div class="kpi-sub">{{ total_enrolled }} face-enrolled active staff</div>
     </div>
 </div>
 
-<!-- Timesheet Data Table -->
-<div class="table-scroll">
-    <table id="report-table" class="data-table">
-        <thead>
-            <tr>
-                <th>Date</th>
-                <th>Staff ID</th>
-                <th>Worker Name</th>
-                <th>Mobile Number</th>
-                <th>First IN (Morning)</th>
-                <th>Last OUT (Evening)</th>
-                <th>Total Hours Worked</th>
-                <th>Punches</th>
-                <th>Status</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for row in timesheet %}
-            <tr>
-                <td><strong>{{ row.date }}</strong></td>
-                <td><strong style="color: var(--gold-bright);">{{ row.staff_id }}</strong></td>
-                <td><strong>{{ row.name }}</strong></td>
-                <td>{{ row.mobile or '—' }}</td>
-                <td>
-                    {% if row.is_present %}
-                    <span style="font-family: monospace; font-size: 13px; color: #fff;">{{ row.first_in }}</span>
-                    {% else %}
-                    <span style="color: var(--text-muted);">—</span>
-                    {% endif %}
-                </td>
-                <td>
-                    {% if row.is_present %}
-                    <span style="font-family: monospace; font-size: 13px; color: #fff;">{{ row.last_out }}</span>
-                    {% else %}
-                    <span style="color: var(--text-muted);">—</span>
-                    {% endif %}
-                </td>
-                <td>
-                    {% if row.is_present and row.total_hours > 0 %}
-                    <strong style="color: var(--green);">{{ row.duration_str }}</strong>
-                    <span style="font-size: 11px; color: var(--text-muted);">({{ "%.2f"|format(row.total_hours) }}h)</span>
-                    {% elif row.is_present %}
-                    <span class="badge in">Clocked In</span>
-                    {% else %}
-                    <span style="color: var(--text-muted);">0.0h</span>
-                    {% endif %}
-                </td>
-                <td>
-                    {% if row.is_present %}
-                    <span class="badge info">{{ row.punch_count }}</span>
-                    {% else %}
-                    <span style="color: var(--text-muted);">0</span>
-                    {% endif %}
-                </td>
-                <td>
-                    {% if row.is_present %}
-                    <span class="badge present">✓ Present</span>
-                    {% else %}
-                    <span class="badge absent">● Absent</span>
-                    {% endif %}
-                </td>
-            </tr>
-            {% endfor %}
-            {% if not timesheet %}
-            <tr>
-                <td colspan="9" style="text-align: center; padding: 40px; color: var(--text-muted);">
-                    No attendance records found for this period and filter selection.
-                </td>
-            </tr>
-            {% endif %}
-        </tbody>
-    </table>
+<!-- Timesheet Data Table Section -->
+<div class="table-card">
+    <div class="table-header-bar">
+        <div class="table-title">
+            <span>Shift Records</span>
+            <span class="count-badge">{{ timesheet|length }}</span>
+        </div>
+        <div class="table-legend">
+            <span class="legend-item"><span class="dot emerald"></span> Present</span>
+            <span class="legend-item"><span class="dot rose"></span> Absent</span>
+        </div>
+    </div>
+
+    <div class="table-scroll">
+        <table id="report-table" class="data-table">
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>Staff ID</th>
+                    <th>Staff Member</th>
+                    <th>Mobile</th>
+                    <th>First IN (Morning)</th>
+                    <th>Last OUT (Evening)</th>
+                    <th>Shift Duration</th>
+                    <th>Punches</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in timesheet %}
+                <tr class="table-row {% if row.is_present %}row-present{% else %}row-absent{% endif %}">
+                    <td><span class="cell-date">{{ row.date }}</span></td>
+                    <td><span class="cell-id">{{ row.staff_id }}</span></td>
+                    <td>
+                        <div class="staff-info-cell">
+                            <span class="staff-avatar-mini">{{ row.name[:1] }}</span>
+                            <strong class="staff-name">{{ row.name }}</strong>
+                        </div>
+                    </td>
+                    <td><span class="cell-mobile">{{ row.mobile or '—' }}</span></td>
+                    <td>
+                        {% if row.is_present %}
+                        <span class="time-chip in">{{ row.first_in }}</span>
+                        {% else %}
+                        <span class="cell-muted">—</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if row.is_present %}
+                        <span class="time-chip out">{{ row.last_out }}</span>
+                        {% else %}
+                        <span class="cell-muted">—</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if row.is_present and row.total_hours > 0 %}
+                        <div class="duration-cell">
+                            <strong class="duration-text">{{ row.duration_str }}</strong>
+                            <span class="duration-sub">({{ "%.2f"|format(row.total_hours) }}h)</span>
+                        </div>
+                        {% elif row.is_present %}
+                        <span class="badge badge-in">Just Clocked In</span>
+                        {% else %}
+                        <span class="cell-muted">0h 0m</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if row.is_present %}
+                        <span class="punch-pill">{{ row.punch_count }}</span>
+                        {% else %}
+                        <span class="cell-muted">0</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if row.is_present %}
+                        <span class="status-badge status-present">
+                            <span class="status-dot"></span> Present
+                        </span>
+                        {% else %}
+                        <span class="status-badge status-absent">
+                            <span class="status-dot"></span> Absent
+                        </span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+                {% if not timesheet %}
+                <tr>
+                    <td colspan="9">
+                        <div class="empty-state">
+                            <div class="empty-icon">📂</div>
+                            <div class="empty-title">No attendance records found</div>
+                            <div class="empty-sub">Try expanding your date range or removing filters to view staff records.</div>
+                        </div>
+                    </td>
+                </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
 </div>
 
 <script>
 function updateExportLinks() {
-    const params = new URLSearchParams();
-    params.set('from', document.getElementById('from').value);
-    params.set('to', document.getElementById('to').value);
-    params.set('status', document.getElementById('status').value);
-    const q = document.getElementById('search').value.trim();
-    if (q) params.set('q', q);
+    const fromEl = document.getElementById('from');
+    const toEl = document.getElementById('to');
+    const statusEl = document.getElementById('status');
+    const searchEl = document.getElementById('search');
 
-    document.getElementById('csv-link').href = '/report/export.csv?' + params.toString();
-    document.getElementById('pdf-link').href = '/report/export.pdf?' + params.toString();
+    const params = new URLSearchParams();
+    if (fromEl) params.set('from', fromEl.value);
+    if (toEl) params.set('to', toEl.value);
+    if (statusEl) params.set('status', statusEl.value);
+    if (searchEl && searchEl.value.trim()) params.set('q', searchEl.value.trim());
+
+    const csvBtn = document.getElementById('csv-link');
+    const pdfBtn = document.getElementById('pdf-link');
+    if (csvBtn) csvBtn.href = '/report/export.csv?' + params.toString();
+    if (pdfBtn) pdfBtn.href = '/report/export.pdf?' + params.toString();
 }
 
 document.getElementById('from').addEventListener('change', updateExportLinks);

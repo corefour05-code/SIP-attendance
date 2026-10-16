@@ -1,11 +1,12 @@
 {% extends "base.html" %}
-{% block title %}Edit {{ student.name }} ({{ student.student_id }}) — {{ hotel_name }}{% endblock %}
+{% block title %}Edit {{ student.name }} ({{ student.student_id }}) — {{ hotel_name or 'Hotel' }}{% endblock %}
 
 {% block content %}
 <div class="page-header">
     <div>
+        <div class="badge-tag">Staff Profile</div>
         <h1>Edit Staff Member</h1>
-        <p class="subtitle"><a href="/staff">&larr; Return to Staff Directory</a></p>
+        <p class="subtitle"><a href="/staff" style="color: var(--gold-bright); text-decoration: none;">&larr; Return to Staff Directory</a></p>
     </div>
 </div>
 
