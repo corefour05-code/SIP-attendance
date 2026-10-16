@@ -1097,7 +1097,6 @@ button:disabled, .btn:disabled {
     width: 100%;
     height: 100%;
     pointer-events: none;
-    transform: scaleX(-1);
 }
 
 .video-guide {

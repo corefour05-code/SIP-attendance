@@ -237,31 +237,42 @@ function drawFaces(faces) {
 
     const scaleX = overlay.width / vw;
     const scaleY = overlay.height / vh;
+    // Front camera is mirrored horizontally in CSS; back camera is not
+    const isMirrored = (facingMode === 'user');
 
     for (const f of faces) {
         const [x1, y1, x2, y2] = f.bbox;
-        const boxX = x1 * scaleX;
-        const boxY = y1 * scaleY;
         const boxW = (x2 - x1) * scaleX;
         const boxH = (y2 - y1) * scaleY;
+        // Correct for front-camera horizontal mirror:
+        const boxX = isMirrored ? (overlay.width - (x2 * scaleX)) : (x1 * scaleX);
+        const boxY = y1 * scaleY;
 
         const isMatch = f.status === 'match';
-        const color = isMatch ? '#10b981' : '#ef4444';
+        const color = isMatch ? '#10b981' : '#f43f5e';
 
+        // Face bounding box
         octx.lineWidth = 3;
         octx.strokeStyle = color;
         octx.strokeRect(boxX, boxY, boxW, boxH);
 
         // Name tag background
-        octx.fillStyle = 'rgba(12, 16, 23, 0.85)';
         const tagText = isMatch ? `${f.name} (${f.duration_str})` : 'Unknown';
-        octx.font = 'bold 13px Inter, sans-serif';
+        octx.font = 'bold 13px Inter, -apple-system, sans-serif';
         const textWidth = octx.measureText(tagText).width;
-        octx.fillRect(boxX, boxY - 26, textWidth + 14, 24);
+        const tagW = textWidth + 18;
+        const tagH = 26;
+        const tagY = Math.max(0, boxY - tagH - 4);
 
-        // Tag text
-        octx.fillStyle = isMatch ? '#f3cf65' : '#f87171';
-        octx.fillText(tagText, boxX + 7, boxY - 9);
+        octx.fillStyle = 'rgba(9, 13, 22, 0.9)';
+        octx.fillRect(boxX, tagY, tagW, tagH);
+        octx.lineWidth = 1.5;
+        octx.strokeStyle = color;
+        octx.strokeRect(boxX, tagY, tagW, tagH);
+
+        // Tag text — rendered straight left-to-right
+        octx.fillStyle = isMatch ? '#f7d688' : '#fb7185';
+        octx.fillText(tagText, boxX + 9, tagY + 17);
 
         // Update HUD with first recognized face
         if (isMatch) {
@@ -313,6 +324,7 @@ toggleBtn.addEventListener('click', () => {
 
 switchBtn.addEventListener('click', () => {
     facingMode = facingMode === 'user' ? 'environment' : 'user';
+    video.style.transform = facingMode === 'user' ? 'scaleX(-1)' : 'none';
     startCamera();
 });
 
