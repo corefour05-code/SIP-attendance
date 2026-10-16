@@ -1332,3 +1332,260 @@ button:disabled, .btn:disabled {
     flex-wrap: wrap;
     gap: 12px;
 }
+
+/* ==========================================================================
+   Comprehensive Mobile & Tablet Responsive Enhancements
+   ========================================================================== */
+
+@media (max-width: 960px) {
+    .topnav-inner {
+        flex-wrap: wrap;
+        padding: 10px 16px;
+        gap: 10px;
+    }
+
+    .brand {
+        order: 1;
+    }
+
+    .nav-status {
+        order: 2;
+        padding: 5px 12px;
+        font-size: 11px;
+    }
+
+    .nav-links {
+        order: 3;
+        width: 100%;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+        padding: 4px;
+        justify-content: flex-start;
+    }
+
+    .nav-links::-webkit-scrollbar {
+        display: none;
+    }
+
+    .nav-links a {
+        padding: 7px 12px;
+        font-size: 12px;
+        flex-shrink: 0;
+    }
+
+    .dashboard-grid {
+        grid-template-columns: 1fr;
+        gap: 20px;
+    }
+
+    .kiosk-grid {
+        grid-template-columns: 1fr;
+        gap: 16px;
+    }
+
+    .video-container {
+        max-height: 48vh;
+    }
+}
+
+@media (max-width: 768px) {
+    /* Prevent iOS Safari auto-zoom on form inputs */
+    input[type="text"],
+    input[type="tel"],
+    input[type="date"],
+    select {
+        font-size: 16px !important;
+    }
+
+    .container {
+        padding: 16px 14px 48px;
+    }
+
+    .page-header {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 14px;
+        margin-bottom: 20px;
+    }
+
+    h1 {
+        font-size: 24px;
+        letter-spacing: -0.01em;
+    }
+
+    .subtitle {
+        font-size: 13px;
+    }
+
+    .header-actions {
+        width: 100%;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .header-actions .btn {
+        width: 100%;
+        height: 42px;
+    }
+
+    /* KPI Grid on Mobile: Clean 2x2 layout */
+    .kpi-grid {
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+        margin-bottom: 20px;
+    }
+
+    .kpi-card {
+        padding: 14px 12px;
+    }
+
+    .kpi-top {
+        margin-bottom: 8px;
+    }
+
+    .kpi-label {
+        font-size: 10px;
+    }
+
+    .kpi-icon-badge {
+        width: 26px;
+        height: 26px;
+        font-size: 13px;
+    }
+
+    .kpi-value {
+        font-size: 24px;
+        margin-bottom: 4px;
+    }
+
+    .kpi-unit {
+        font-size: 14px;
+    }
+
+    .kpi-sub {
+        font-size: 11px;
+    }
+
+    /* Quick Preset Chips - smooth touch horizontal scroll */
+    .filter-presets-wrapper {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+        flex-wrap: nowrap;
+        padding-bottom: 6px;
+        margin-bottom: 14px;
+    }
+
+    .filter-presets-wrapper::-webkit-scrollbar {
+        display: none;
+    }
+
+    .filter-presets {
+        flex-shrink: 0;
+        flex-wrap: nowrap;
+    }
+
+    .preset-chip {
+        padding: 6px 12px;
+        font-size: 12px;
+        flex-shrink: 0;
+    }
+
+    /* Filter Form in Reports */
+    .filter-card {
+        padding: 16px 14px;
+        margin-bottom: 20px;
+    }
+
+    .filter-grid {
+        grid-template-columns: 1fr;
+        gap: 12px;
+    }
+
+    .filter-grid .form-group input,
+    .filter-grid .form-group select,
+    .filter-grid .btn {
+        width: 100%;
+    }
+
+    /* Table Cards & Horizontal Momentum Scrolling */
+    .table-header-bar {
+        padding: 12px 14px;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+    }
+
+    .table-scroll {
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .data-table th,
+    .data-table td {
+        padding: 10px 12px;
+        font-size: 12px;
+    }
+
+    .cell-id {
+        font-size: 11px;
+        padding: 2px 6px;
+    }
+
+    .time-chip {
+        font-size: 11px;
+        padding: 3px 8px;
+    }
+
+    /* Staff Directory Actions on Mobile */
+    .action-btn-row {
+        flex-direction: column;
+        gap: 6px;
+    }
+
+    .btn-action-edit,
+    .btn-action-delete {
+        width: 100%;
+        text-align: center;
+        padding: 6px 10px;
+    }
+
+    /* Enrollment on Mobile */
+    .enroll-wrapper {
+        padding: 0;
+    }
+
+    .cam-preview-box {
+        max-height: 45vh;
+    }
+
+    .face-oval-guide {
+        width: 180px;
+        height: 240px;
+    }
+
+    .app-footer {
+        padding: 16px 14px;
+    }
+
+    .footer-inner {
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+        gap: 6px;
+    }
+}
+
+@media (max-width: 400px) {
+    .kpi-grid {
+        grid-template-columns: 1fr;
+    }
+    .brand-name {
+        font-size: 17px;
+    }
+    .brand-crest {
+        width: 36px;
+        height: 36px;
+    }
+}
