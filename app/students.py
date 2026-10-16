@@ -1,8 +1,8 @@
 import re
-
 from app.db import db_session
 
-ID_PATTERN = re.compile(r"^IT(\d{3})$")
+# Matches HTL001, EMP001, IT001, etc.
+ID_PATTERN = re.compile(r"^([A-Za-z]+)(\d+)$")
 MOBILE_PATTERN = re.compile(r"^\d{10}$")
 
 
@@ -15,20 +15,29 @@ def normalize_mobile(raw: str) -> str | None:
     return digits if MOBILE_PATTERN.match(digits) else None
 
 
-def next_student_id(conn=None) -> str:
+def next_staff_id(conn=None, prefix: str = "HTL") -> str:
+    """Generate next staff ID, e.g. HTL001, HTL002..."""
     def _compute(c):
         rows = c.execute("SELECT student_id FROM students").fetchall()
         max_num = 0
         for row in rows:
             m = ID_PATTERN.match(row["student_id"])
             if m:
-                max_num = max(max_num, int(m.group(1)))
-        return f"IT{max_num + 1:03d}"
+                try:
+                    max_num = max(max_num, int(m.group(2)))
+                except ValueError:
+                    pass
+        return f"{prefix}{max_num + 1:03d}"
 
     if conn is not None:
         return _compute(conn)
     with db_session() as c:
         return _compute(c)
+
+
+def next_student_id(conn=None) -> str:
+    """Alias for backwards compatibility."""
+    return next_staff_id(conn, prefix="HTL")
 
 
 def student_exists(conn, student_id: str) -> bool:
@@ -39,11 +48,22 @@ def student_exists(conn, student_id: str) -> bool:
 
 
 def list_students(conn):
+    """List all hotel staff with photo counts and today's shift status."""
     return conn.execute(
         """
-        SELECT s.student_id, s.name, s.mobile_number, s.created_at, COUNT(e.id) AS photo_count
+        SELECT 
+            s.student_id, 
+            s.name, 
+            s.mobile_number, 
+            s.created_at, 
+            COUNT(e.id) AS photo_count,
+            da.first_in,
+            da.last_out,
+            da.total_hours,
+            da.status AS today_status
         FROM students s
         LEFT JOIN embeddings e ON e.student_id = s.student_id
+        LEFT JOIN daily_attendance da ON da.staff_id = s.student_id AND da.work_date = DATE('now', '+5 hours', '30 minutes')
         GROUP BY s.student_id
         ORDER BY s.student_id
         """
@@ -52,7 +72,12 @@ def list_students(conn):
 
 def get_student(conn, student_id: str):
     return conn.execute(
-        "SELECT student_id, name, mobile_number, created_at FROM students WHERE student_id = ?", (student_id,)
+        """
+        SELECT student_id, name, mobile_number, created_at
+        FROM students
+        WHERE student_id = ?
+        """,
+        (student_id,),
     ).fetchone()
 
 
@@ -90,8 +115,6 @@ def update_student_mobile(conn, student_id: str, mobile_number: str | None):
 
 
 def create_preregistered_student(conn, student_id: str, name: str, mobile_number: str):
-    """Used by the CSV roster import — a real students row with no face
-    photos yet, completed later on enrollment day by mobile-number lookup."""
     conn.execute(
         "INSERT INTO students (student_id, name, mobile_number) VALUES (?, ?, ?)",
         (student_id, name, mobile_number),
@@ -109,5 +132,5 @@ def replace_embeddings(conn, student_id: str, photos: list[dict]):
     for photo in photos:
         conn.execute(
             "INSERT INTO embeddings (student_id, embedding, angle_label) VALUES (?, ?, ?)",
-            (student_id, embedding_to_blob(photo["embedding"]), photo["angle_label"]),
+            (student_id, embedding_to_blob(photo["embedding"]), photo.get("angle_label", "original")),
         )

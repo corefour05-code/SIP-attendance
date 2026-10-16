@@ -3,27 +3,28 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}PSNA IT Department SIP Attendance{% endblock %}</title>
+    <title>{% block title %}{{ hotel_name or 'The Grand Luxe Hotel' }} — Staff Attendance{% endblock %}</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
     <nav class="topnav">
         <div class="topnav-inner">
-            <a href="/enroll" class="brand">
-                <span class="brand-mark"></span>
-                <span class="brand-text">
-                    <span class="brand-line1">PSNA IT Department</span>
-                    <span class="brand-line2">SIP Attendance</span>
-                </span>
+            <a href="/" class="brand">
+                <div class="brand-crest">G</div>
+                <div class="brand-text">
+                    <span class="brand-name">{{ hotel_name or 'The Grand Luxe Hotel' }}</span>
+                    <span class="brand-sub">Staff Attendance &amp; Shift Tracker</span>
+                </div>
             </a>
             <div class="nav-links">
-                <a href="/enroll" class="{{ 'active' if request.url.path == '/enroll' else '' }}">Enroll</a>
-                <a href="/students" class="{{ 'active' if request.url.path.startswith('/students') else '' }}">Students</a>
-                <a href="/scan" class="{{ 'active' if request.url.path == '/scan' else '' }}">Scan</a>
-                <a href="/report" class="{{ 'active' if request.url.path == '/report' else '' }}">Report</a>
+                <a href="/" class="{{ 'active' if request.url.path == '/' else '' }}">Dashboard</a>
+                <a href="/scan" class="{{ 'active' if request.url.path == '/scan' else '' }}">Kiosk Scanner</a>
+                <a href="/staff" class="{{ 'active' if request.url.path in ['/staff', '/students'] or request.url.path.startswith('/staff/') or request.url.path.startswith('/students/') else '' }}">Staff Directory</a>
+                <a href="/enroll" class="{{ 'active' if request.url.path == '/enroll' else '' }}">+ Enroll Staff</a>
+                <a href="/report" class="{{ 'active' if request.url.path == '/report' else '' }}">Owner Reports</a>
             </div>
         </div>
     </nav>

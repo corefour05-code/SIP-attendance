@@ -1,20 +1,78 @@
 {% extends "base.html" %}
-{% block title %}Scan — PSNA SIP Attendance{% endblock %}
+{% block title %}Kiosk Scanner — {{ hotel_name }}{% endblock %}
+{% block container_class %}wide{% endblock %}
+
 {% block content %}
-<h1>Attendance Scanner</h1>
-<p class="subtitle">Point the camera at a student to mark today's session automatically.</p>
-
-<div class="card">
-    <div class="video-wrap">
-        <video id="video" autoplay playsinline muted></video>
-        <canvas id="overlay"></canvas>
-        <div class="scan-idle-msg" id="scan-idle-msg">Starting camera…</div>
+<div class="page-header">
+    <div>
+        <h1>Staff Biometric Attendance Terminal</h1>
+        <p class="subtitle">Face the camera. The terminal automatically logs your <strong>First IN</strong> and <strong>Last OUT</strong> and calculates your daily shift hours.</p>
     </div>
-
-    <div class="controls">
-        <button id="toggle-btn">Pause</button>
+    <div style="display: flex; gap: 8px;">
+        <button id="fullscreen-btn" class="secondary">⛶ Fullscreen</button>
         <button id="switch-btn" class="secondary" hidden>Switch Camera</button>
         <button id="voice-btn" class="secondary">Voice: On</button>
+    </div>
+</div>
+
+<div class="kiosk-grid">
+    <!-- Camera Scanner Feed -->
+    <div class="card" style="padding: 16px; margin-bottom: 0;">
+        <div class="video-container" id="video-container">
+            <video id="video" autoplay playsinline muted></video>
+            <canvas id="overlay"></canvas>
+            <div class="video-guide"></div>
+            <div id="scan-idle-msg" style="position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.75); color: #fff; padding: 6px 16px; border-radius: var(--radius-full); font-size: 13px; font-weight: 500; border: 1px solid var(--border);">
+                Initializing Camera…
+            </div>
+        </div>
+        
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 14px;">
+            <div id="terminal-clock" style="font-family: 'Outfit', sans-serif; font-size: 18px; font-weight: 700; color: var(--gold-bright);">
+                --:--:--
+            </div>
+            <button id="toggle-btn" class="secondary" style="padding: 6px 14px; font-size: 13px;">Pause Terminal</button>
+        </div>
+    </div>
+
+    <!-- Live HUD Status Sidebar -->
+    <div class="kiosk-status-card">
+        <div>
+            <div class="card-title">Live Verification HUD</div>
+            
+            <div class="last-scan-hero" id="status-box">
+                <div class="scan-avatar" id="avatar-el">👤</div>
+                <div class="scan-name" id="name-el">Terminal Idle</div>
+                <div class="scan-id" id="id-el">Ready for Next Staff</div>
+
+                <div id="badge-wrapper" style="margin-bottom: 14px; display: none;">
+                    <span class="badge in" id="badge-el">● Clocked In</span>
+                </div>
+
+                <div class="scan-times-box" id="times-box" style="display: none;">
+                    <div class="scan-time-item">
+                        <span>First IN (Morning)</span>
+                        <strong id="first-in-el">--:--</strong>
+                    </div>
+                    <div class="scan-time-item">
+                        <span>Last OUT (Evening)</span>
+                        <strong id="last-out-el">--:--</strong>
+                    </div>
+                </div>
+
+                <div class="scan-duration-badge" id="duration-badge" style="display: none;">
+                    Shift Logged: <span id="duration-val">0h 0m</span>
+                </div>
+
+                <div id="custom-msg" style="margin-top: 12px; font-size: 12px; color: var(--text-secondary);">
+                    Step in front of the lens to record attendance.
+                </div>
+            </div>
+        </div>
+
+        <div style="font-size: 11px; color: var(--text-muted); text-align: center; border-top: 1px solid var(--border); padding-top: 12px;">
+            Fast Biometric Processing &nbsp;•&nbsp; Anti-Flicker Vector Match
+        </div>
     </div>
 </div>
 
@@ -26,71 +84,52 @@ const idleMsg = document.getElementById('scan-idle-msg');
 const toggleBtn = document.getElementById('toggle-btn');
 const switchBtn = document.getElementById('switch-btn');
 const voiceBtn = document.getElementById('voice-btn');
+const fullscreenBtn = document.getElementById('fullscreen-btn');
+const clockEl = document.getElementById('terminal-clock');
+
+const nameEl = document.getElementById('name-el');
+const idEl = document.getElementById('id-el');
+const avatarEl = document.getElementById('avatar-el');
+const badgeWrapper = document.getElementById('badge-wrapper');
+const badgeEl = document.getElementById('badge-el');
+const timesBox = document.getElementById('times-box');
+const firstInEl = document.getElementById('first-in-el');
+const lastOutEl = document.getElementById('last-out-el');
+const durationBadge = document.getElementById('duration-badge');
+const durationVal = document.getElementById('duration-val');
+const customMsg = document.getElementById('custom-msg');
+
 const captureCanvas = document.createElement('canvas');
 
 let stream = null;
 let running = true;
-// 'environment' (rear camera) by default — scanning is usually someone
-// holding the phone up and pointing it at another person, like a QR scan.
-// Ignored harmlessly on a single-camera desktop webcam.
-let facingMode = 'environment';
-
-// Small idle gap between the end of one scan and the start of the next.
-// Requests are never overlapped — each poll fully resolves before the next
-// frame is captured — so results always land in order and the box never
-// jumps back to a stale position.
+let facingMode = 'user'; // front camera on kiosk terminal
 const POLL_GAP_MS = 60;
 
-const COLORS = {
-    ok: '#1f7a52',
-    already: '#9a6a12',
-    unknown: '#b3261e',
-};
-
-// Speaks a matched student's name aloud on scan. Every poll re-sends the
-// same face while a person lingers in frame, so announcements are
-// throttled per student rather than fired on every response.
+// Text-to-Speech
 let voiceEnabled = 'speechSynthesis' in window;
 voiceBtn.hidden = !voiceEnabled;
-const lastAnnounced = {}; // student_id -> timestamp
-const ANNOUNCE_COOLDOWN_MS = 6000;
+const lastAnnounced = {}; // staff_id -> timestamp
+const ANNOUNCE_COOLDOWN_MS = 8000;
+
+function updateClock() {
+    const now = new Date();
+    clockEl.textContent = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
+}
+setInterval(updateClock, 1000);
+updateClock();
 
 function speak(text) {
-    if (!voiceEnabled) return;
+    if (!voiceEnabled || !text) return;
     try {
+        window.speechSynthesis.cancel();
         const utter = new SpeechSynthesisUtterance(text);
-        utter.rate = 1;
+        utter.rate = 1.05;
         window.speechSynthesis.speak(utter);
-    } catch (err) {
-        // speech synthesis not available/blocked — fail silently, the
-        // on-screen name tag already carries the same information
-    }
+    } catch (err) {}
 }
-
-function announceFaces(faces) {
-    if (!voiceEnabled || !faces) return;
-    const now = Date.now();
-    for (const face of faces) {
-        if (face.status !== 'match') continue;
-        const last = lastAnnounced[face.student_id] || 0;
-        if (now - last < ANNOUNCE_COOLDOWN_MS) continue;
-        lastAnnounced[face.student_id] = now;
-        speak(face.name);
-    }
-}
-
-voiceBtn.addEventListener('click', () => {
-    voiceEnabled = !voiceEnabled;
-    voiceBtn.textContent = 'Voice: ' + (voiceEnabled ? 'On' : 'Off');
-    if (!voiceEnabled) window.speechSynthesis.cancel();
-});
 
 function resizeOverlay() {
-    // Assigning canvas.width/height clears the canvas as a side effect, even
-    // when set to the same value it already had. This was being called on
-    // every single scan iteration (from captureBlob), which wiped the drawn
-    // box right before every capture — the actual cause of the flicker, not
-    // detection recall. Only touch it when the size actually changed.
     const w = video.clientWidth;
     const h = video.clientHeight;
     if (overlay.width !== w || overlay.height !== h) {
@@ -98,217 +137,199 @@ function resizeOverlay() {
         overlay.height = h;
     }
 }
-window.addEventListener('resize', resizeOverlay);
 
-function roundRectPath(ctx, x, y, w, h, r) {
-    ctx.beginPath();
-    ctx.moveTo(x + r, y);
-    ctx.arcTo(x + w, y, x + w, y + h, r);
-    ctx.arcTo(x + w, y + h, x, y + h, r);
-    ctx.arcTo(x, y + h, x, y, r);
-    ctx.arcTo(x, y, x + w, y, r);
-    ctx.closePath();
-}
-
-// Maps a bbox in the captured frame's native pixel space to the video
-// element's displayed (object-fit: cover) box.
-function mapBbox(bbox) {
-    if (!video.videoWidth || !video.videoHeight || !overlay.width || !overlay.height) return null;
-    const vw = video.videoWidth, vh = video.videoHeight;
-    const dw = overlay.width, dh = overlay.height;
-    const scale = Math.max(dw / vw, dh / vh);
-    const offX = (vw * scale - dw) / 2;
-    const offY = (vh * scale - dh) / 2;
-    const [x1, y1, x2, y2] = bbox;
-    return [x1 * scale - offX, y1 * scale - offY, x2 * scale - offX, y2 * scale - offY];
-}
-
-function sessionSub(face) {
-    if (!face.session) return face.student_id || '';
-    const label = face.session.charAt(0).toUpperCase() + face.session.slice(1);
-    return `${face.student_id}  ·  ${label}${face.already_marked ? ' (already marked)' : ' marked'}`;
-}
-
-function drawFace(face) {
-    const mapped = mapBbox(face.bbox);
-    if (!mapped) return;
-    const [x1, y1, x2, y2] = mapped;
-
-    const kind = face.status === 'match' ? (face.already_marked ? 'already' : 'ok') : 'unknown';
-    const label = face.status === 'match' ? face.name : 'Unknown';
-    const sub = face.status === 'match' ? sessionSub(face) : 'Not enrolled';
-    const color = COLORS[kind];
-
-    octx.lineWidth = 2.5;
-    octx.strokeStyle = color;
-    roundRectPath(octx, x1, y1, x2 - x1, y2 - y1, 10);
-    octx.stroke();
-
-    const padX = 10;
-    const tagH = 40;
-    octx.font = '600 15px Inter, system-ui, sans-serif';
-    const labelW = octx.measureText(label).width;
-    octx.font = '500 11.5px Inter, system-ui, sans-serif';
-    const subW = octx.measureText(sub).width;
-    const tagW = Math.max(labelW, subW) + padX * 2;
-
-    let tagX = Math.max(4, Math.min(x1, overlay.width - tagW - 4));
-    let tagY = y1 - tagH - 6;
-    if (tagY < 0) tagY = Math.min(y2 + 6, overlay.height - tagH - 4);
-
-    octx.fillStyle = color;
-    roundRectPath(octx, tagX, tagY, tagW, tagH, 6);
-    octx.fill();
-
-    octx.fillStyle = '#ffffff';
-    octx.textBaseline = 'top';
-    octx.font = '600 15px Inter, system-ui, sans-serif';
-    octx.fillText(label, tagX + padX, tagY + 5);
-    octx.font = '500 11.5px Inter, system-ui, sans-serif';
-    octx.globalAlpha = 0.88;
-    octx.fillText(sub, tagX + padX, tagY + 23);
-    octx.globalAlpha = 1;
-}
-
-// No frame-by-frame detector has 100% recall on live video — a blink, a
-// hint of motion blur, or auto-exposure adjusting can make a single poll
-// come back with zero faces even though the person hasn't moved. Treat the
-// box as a track: keep showing the last-seen face(s) through a brief gap in
-// detection, and only actually clear once nothing has been seen for a real
-// stretch of time (i.e. the face genuinely left frame). Time-based, not
-// frame-count-based, since poll cadence varies with server load.
-let lastFaces = null;
-let lastSeenAt = 0;
-const TRACK_PERSIST_MS = 900;
-
-function render(faces) {
-    const now = Date.now();
-    if (faces && faces.length > 0) {
-        lastFaces = faces;
-        lastSeenAt = now;
-    } else if (lastFaces && now - lastSeenAt < TRACK_PERSIST_MS) {
-        faces = lastFaces; // brief gap — keep the track alive at its last known position
-    } else {
-        lastFaces = null;
-        faces = null;
+async function startCamera() {
+    if (stream) {
+        stream.getTracks().forEach(t => t.stop());
     }
-
-    octx.clearRect(0, 0, overlay.width, overlay.height);
-    if (!faces || faces.length === 0) {
-        idleMsg.textContent = 'Looking for a face…';
-        idleMsg.hidden = false;
-        return;
-    }
-    idleMsg.hidden = true;
-    faces.forEach(drawFace);
-}
-
-async function openCamera(mode) {
-    return navigator.mediaDevices.getUserMedia({
-        video: { width: 640, height: 480, facingMode: { ideal: mode } },
-    });
-}
-
-async function updateSwitchVisibility() {
+    idleMsg.textContent = 'Opening video lens…';
     try {
-        const devices = await navigator.mediaDevices.enumerateDevices();
-        const cams = devices.filter((d) => d.kind === 'videoinput');
-        switchBtn.hidden = cams.length < 2;
-    } catch (err) {
-        switchBtn.hidden = true;
-    }
-}
-
-async function init() {
-    try {
-        stream = await openCamera(facingMode);
+        stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+                facingMode,
+                width: { ideal: 1280 },
+                height: { ideal: 720 },
+            },
+            audio: false,
+        });
         video.srcObject = stream;
-        video.addEventListener('loadedmetadata', resizeOverlay);
-        idleMsg.textContent = 'Looking for a face…';
-        idleMsg.hidden = false;
-        updateSwitchVisibility();
-    } catch (err) {
-        idleMsg.textContent = 'Could not access camera: ' + err.message;
-        idleMsg.hidden = false;
-        running = false;
-    }
-}
+        await video.play();
+        idleMsg.textContent = 'Terminal Online • Ready';
+        idleMsg.style.borderColor = 'var(--green)';
+        setTimeout(() => { idleMsg.style.display = 'none'; }, 2000);
 
-switchBtn.addEventListener('click', async () => {
-    const nextMode = facingMode === 'environment' ? 'user' : 'environment';
-    switchBtn.disabled = true;
-    try {
-        const newStream = await openCamera(nextMode);
-        if (stream) stream.getTracks().forEach((t) => t.stop());
-        stream = newStream;
-        video.srcObject = stream;
-        facingMode = nextMode;
-        lastFaces = null;
-        lastSeenAt = 0;
-        octx.clearRect(0, 0, overlay.width, overlay.height);
+        if (navigator.mediaDevices.enumerateDevices) {
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            const videoCams = devices.filter(d => d.kind === 'videoinput');
+            switchBtn.hidden = videoCams.length < 2;
+        }
     } catch (err) {
-        idleMsg.textContent = 'Could not switch camera: ' + err.message;
-        idleMsg.hidden = false;
-    } finally {
-        switchBtn.disabled = false;
+        idleMsg.textContent = 'Camera permission denied or camera unavailable';
+        idleMsg.style.borderColor = 'var(--red)';
     }
-});
-
-function wait(ms) {
-    return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function captureBlob() {
     resizeOverlay();
-    captureCanvas.width = video.videoWidth;
-    captureCanvas.height = video.videoHeight;
-    captureCanvas.getContext('2d').drawImage(video, 0, 0, captureCanvas.width, captureCanvas.height);
-    return new Promise((resolve) => captureCanvas.toBlob(resolve, 'image/jpeg', 0.85));
+    const vw = video.videoWidth;
+    const vh = video.videoHeight;
+    if (!vw || !vh) return Promise.resolve(null);
+    captureCanvas.width = vw;
+    captureCanvas.height = vh;
+    const ctx = captureCanvas.getContext('2d');
+    ctx.drawImage(video, 0, 0, vw, vh);
+    return new Promise(resolve => captureCanvas.toBlob(resolve, 'image/jpeg', 0.85));
 }
 
-// Scans back-to-back: the next frame is captured the instant the previous
-// response comes back, so every box tracks continuously — the only latency
-// is one real round trip to the server, no artificial pause layered on top.
-async function scanLoop() {
+function updateHUD(face) {
+    if (!face) return;
+    if (face.status === 'match') {
+        nameEl.textContent = face.name;
+        idEl.textContent = face.student_id;
+        avatarEl.textContent = face.name.charAt(0).toUpperCase();
+        avatarEl.style.borderColor = 'var(--gold)';
+
+        badgeWrapper.style.display = 'block';
+        if (face.action === 'IN') {
+            badgeEl.className = 'badge in';
+            badgeEl.textContent = '● Morning Clock IN';
+        } else {
+            badgeEl.className = 'badge working';
+            badgeEl.textContent = '🔄 Shift Updated';
+        }
+
+        timesBox.style.display = 'grid';
+        firstInEl.textContent = face.first_in || '--:--';
+        lastOutEl.textContent = face.last_out || '--:--';
+
+        durationBadge.style.display = 'inline-block';
+        durationVal.textContent = face.duration_str;
+        customMsg.textContent = face.message;
+
+        const now = Date.now();
+        const last = lastAnnounced[face.student_id] || 0;
+        if (now - last > ANNOUNCE_COOLDOWN_MS) {
+            lastAnnounced[face.student_id] = now;
+            speak(face.speech);
+        }
+    } else {
+        nameEl.textContent = 'Unrecognized Face';
+        idEl.textContent = 'Not Enrolled in Roster';
+        avatarEl.textContent = '?';
+        avatarEl.style.borderColor = 'var(--red)';
+        badgeWrapper.style.display = 'block';
+        badgeEl.className = 'badge absent';
+        badgeEl.textContent = 'Unknown Staff';
+        timesBox.style.display = 'none';
+        durationBadge.style.display = 'none';
+        customMsg.textContent = 'Please register this staff member at the enrollment desk.';
+    }
+}
+
+function drawFaces(faces) {
+    octx.clearRect(0, 0, overlay.width, overlay.height);
+    if (!faces || faces.length === 0) return;
+
+    const vw = video.videoWidth;
+    const vh = video.videoHeight;
+    if (!vw || !vh) return;
+
+    const scaleX = overlay.width / vw;
+    const scaleY = overlay.height / vh;
+
+    for (const f of faces) {
+        const [x1, y1, x2, y2] = f.bbox;
+        const boxX = x1 * scaleX;
+        const boxY = y1 * scaleY;
+        const boxW = (x2 - x1) * scaleX;
+        const boxH = (y2 - y1) * scaleY;
+
+        const isMatch = f.status === 'match';
+        const color = isMatch ? '#10b981' : '#ef4444';
+
+        octx.lineWidth = 3;
+        octx.strokeStyle = color;
+        octx.strokeRect(boxX, boxY, boxW, boxH);
+
+        // Name tag background
+        octx.fillStyle = 'rgba(12, 16, 23, 0.85)';
+        const tagText = isMatch ? `${f.name} (${f.duration_str})` : 'Unknown';
+        octx.font = 'bold 13px Inter, sans-serif';
+        const textWidth = octx.measureText(tagText).width;
+        octx.fillRect(boxX, boxY - 26, textWidth + 14, 24);
+
+        // Tag text
+        octx.fillStyle = isMatch ? '#f3cf65' : '#f87171';
+        octx.fillText(tagText, boxX + 7, boxY - 9);
+
+        // Update HUD with first recognized face
+        if (isMatch) {
+            updateHUD(f);
+        }
+    }
+}
+
+async function loop() {
     while (true) {
-        if (!running || video.videoWidth === 0) {
-            await wait(150);
+        if (!running) {
+            await new Promise(r => setTimeout(r, 200));
             continue;
         }
-        try {
-            const blob = await captureBlob();
-            if (!blob) continue;
-            const formData = new FormData();
-            formData.append('image', blob, 'frame.jpg');
-            const res = await fetch('/api/scan', { method: 'POST', body: formData });
-            const data = await res.json();
-            render(data.faces);
-            announceFaces(data.faces);
-        } catch (err) {
-            idleMsg.textContent = 'Error contacting server: ' + err.message;
-            idleMsg.hidden = false;
-            await wait(500);
+
+        const blob = await captureBlob();
+        if (!blob) {
+            await new Promise(r => setTimeout(r, 200));
+            continue;
         }
-        await wait(POLL_GAP_MS);
+
+        try {
+            const fd = new FormData();
+            fd.append('image', blob, 'frame.jpg');
+            const res = await fetch('/api/scan', { method: 'POST', body: fd });
+            if (res.ok) {
+                const data = await res.json();
+                drawFaces(data.faces);
+            }
+        } catch (e) {
+            // network error retry silently
+        }
+
+        await new Promise(r => setTimeout(r, POLL_GAP_MS));
     }
 }
 
 toggleBtn.addEventListener('click', () => {
     running = !running;
-    toggleBtn.textContent = running ? 'Pause' : 'Resume';
-    lastFaces = null;
-    lastSeenAt = 0;
-    if (running) {
-        idleMsg.textContent = 'Looking for a face…';
-        idleMsg.hidden = false;
-    } else {
+    toggleBtn.textContent = running ? 'Pause Terminal' : 'Resume Terminal';
+    if (!running) {
         octx.clearRect(0, 0, overlay.width, overlay.height);
-        idleMsg.textContent = 'Paused';
-        idleMsg.hidden = false;
+        idleMsg.textContent = 'Terminal Paused';
+        idleMsg.style.display = 'block';
+    } else {
+        idleMsg.style.display = 'none';
     }
 });
 
-init();
-scanLoop();
+switchBtn.addEventListener('click', () => {
+    facingMode = facingMode === 'user' ? 'environment' : 'user';
+    startCamera();
+});
+
+voiceBtn.addEventListener('click', () => {
+    voiceEnabled = !voiceEnabled;
+    voiceBtn.textContent = 'Voice: ' + (voiceEnabled ? 'On' : 'Off');
+    if (!voiceEnabled) window.speechSynthesis.cancel();
+});
+
+fullscreenBtn.addEventListener('click', () => {
+    const cont = document.getElementById('video-container');
+    if (!document.fullscreenElement) {
+        cont.requestFullscreen().catch(() => {});
+    } else {
+        document.exitFullscreen().catch(() => {});
+    }
+});
+
+startCamera().then(loop);
 </script>
 {% endblock %}

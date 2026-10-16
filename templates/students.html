@@ -1,105 +1,141 @@
 {% extends "base.html" %}
-{% block title %}Students — PSNA SIP Attendance{% endblock %}
+{% block title %}Staff Directory — {{ hotel_name }}{% endblock %}
 {% block container_class %}wide{% endblock %}
-{% block content %}
-<h1>Students</h1>
-<p class="subtitle">Edit a student to fix their name or re-capture face photos.</p>
 
-<div class="tab-row">
-    <button class="tab-btn active" data-tab="enrolled">Enrolled <span class="tab-count">{{ students|selectattr('photo_count', 'ge', 5)|list|length }}</span></button>
-    <button class="tab-btn" data-tab="pending">Pending capture <span class="tab-count">{{ students|rejectattr('photo_count', 'ge', 5)|list|length }}</span></button>
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1>Hotel Staff Directory</h1>
+        <p class="subtitle">Manage staff biometric profiles, contact numbers, and monitor daily shift hours.</p>
+    </div>
+    <a href="/enroll" class="btn">+ Enroll New Staff</a>
+</div>
+
+<div class="filter-presets" style="margin-bottom: 20px;">
+    <button type="button" class="preset-chip active tab-btn" data-tab="all">
+        All Staff ({{ students|length }})
+    </button>
+    <button type="button" class="preset-chip tab-btn" data-tab="working">
+        Working Today ({{ students|selectattr('today_status')|list|length }})
+    </button>
+    <button type="button" class="preset-chip tab-btn" data-tab="pending">
+        Pending Photo ({{ students|rejectattr('photo_count', 'ge', 1)|list|length }})
+    </button>
 </div>
 
 <div class="search-export-row">
-    <input type="text" id="search" placeholder="Search by name, ID, or mobile">
-    <a href="/enroll" class="btn-link">+ Enroll New Student</a>
+    <input type="text" id="search" placeholder="Search by Staff Name, ID (e.g. HTL001), or Phone number…">
 </div>
 
 <div class="table-scroll">
-<table id="students-table" class="data-table">
-    <thead>
-        <tr>
-            <th class="sticky-col">ID</th>
-            <th class="sticky-col name-col">Name</th>
-            <th>Mobile</th>
-            <th>Enrolled</th>
-            <th>Face Photos</th>
-            <th></th>
-            <th></th>
-        </tr>
-    </thead>
-    <tbody>
-        {% for stu in students %}
-        <tr data-id="{{ stu.student_id }}" data-name="{{ stu.name }}" data-mobile="{{ stu.mobile_number or '' }}" data-status="{{ 'enrolled' if stu.photo_count >= 5 else 'pending' }}">
-            <td class="sticky-col">{{ stu.student_id }}</td>
-            <td class="sticky-col name-col">{{ stu.name }}</td>
-            <td>{{ stu.mobile_number or '—' }}</td>
-            <td>{{ stu.created_at[:10] if stu.created_at else '—' }}</td>
-            <td>
-                {% if stu.photo_count >= 5 %}
-                <span class="badge present">{{ stu.photo_count }} photos</span>
-                {% else %}
-                <span class="badge absent">{{ stu.photo_count }} photos</span>
-                {% endif %}
-            </td>
-            <td><a href="/students/{{ stu.student_id }}/edit" class="btn-link btn-link-sm">Edit</a></td>
-            <td><button class="btn-danger btn-link-sm" data-delete-id="{{ stu.student_id }}" data-delete-name="{{ stu.name }}">Delete</button></td>
-        </tr>
-        {% endfor %}
-        {% if not students %}
-        <tr><td colspan="7" class="empty-row">No students enrolled yet. <a href="/enroll">Enroll the first one</a>.</td></tr>
-        {% endif %}
-        <tr id="no-match-row" class="js-empty-row" style="display:none;"><td colspan="7" class="empty-row"></td></tr>
-    </tbody>
-</table>
+    <table id="staff-table" class="data-table">
+        <thead>
+            <tr>
+                <th>Staff ID</th>
+                <th>Staff Name</th>
+                <th>Mobile Number</th>
+                <th>Today's First IN</th>
+                <th>Today's Last OUT</th>
+                <th>Today's Hours</th>
+                <th>Biometrics</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for s in students %}
+            <tr data-id="{{ s.student_id }}" data-name="{{ s.name }}" data-mobile="{{ s.mobile_number or '' }}" data-working="{{ 'yes' if s.today_status else 'no' }}" data-enrolled="{{ 'yes' if s.photo_count >= 1 else 'no' }}">
+                <td><strong style="color: var(--gold-bright);">{{ s.student_id }}</strong></td>
+                <td><strong>{{ s.name }}</strong></td>
+                <td>{{ s.mobile_number or '—' }}</td>
+                <td>{{ s.first_in[11:16] if s.first_in else '—' }}</td>
+                <td>{{ s.last_out[11:16] if s.last_out else '—' }}</td>
+                <td>
+                    {% if s.total_hours and s.total_hours > 0 %}
+                    <strong style="color: var(--green);">{{ "%.2f"|format(s.total_hours) }} hrs</strong>
+                    {% elif s.first_in %}
+                    <span class="badge in">Clocked In</span>
+                    {% else %}
+                    <span style="color: var(--text-muted);">—</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if s.photo_count >= 1 %}
+                    <span class="badge present">✓ Enrolled ({{ s.photo_count }})</span>
+                    {% else %}
+                    <span class="badge absent">● No Photo</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <div style="display: flex; gap: 8px;">
+                        <a href="/staff/{{ s.student_id }}/edit" class="btn-link btn-link-sm">Edit / Recapture</a>
+                        <button type="button" class="btn-danger btn-link-sm" data-delete-id="{{ s.student_id }}" data-delete-name="{{ s.name }}">Delete</button>
+                    </div>
+                </td>
+            </tr>
+            {% endfor %}
+            {% if not students %}
+            <tr>
+                <td colspan="8" style="text-align: center; padding: 40px; color: var(--text-muted);">
+                    No staff members registered yet. <a href="/enroll" style="color: var(--gold);">Enroll your first staff member</a>.
+                </td>
+            </tr>
+            {% endif %}
+            <tr id="no-match-row" style="display: none;">
+                <td colspan="8" style="text-align: center; padding: 30px; color: var(--text-muted);">
+                    No staff members match the current search or filter.
+                </td>
+            </tr>
+        </tbody>
+    </table>
 </div>
 
 <script>
-let activeTab = 'enrolled';
+let currentTab = 'all';
 const noMatchRow = document.getElementById('no-match-row');
+const searchInput = document.getElementById('search');
 
-function filterRows() {
-    const q = document.getElementById('search').value.trim().toLowerCase();
-    let visibleCount = 0;
-    document.querySelectorAll('#students-table tbody tr').forEach(tr => {
+function filterStaff() {
+    const q = searchInput.value.trim().toLowerCase();
+    let visible = 0;
+
+    document.querySelectorAll('#staff-table tbody tr').forEach(tr => {
         if (!tr.dataset.id) return;
-        const id = tr.dataset.id.toLowerCase();
-        const name = tr.dataset.name.toLowerCase();
-        const mobile = tr.dataset.mobile.toLowerCase();
-        const matchesTab = tr.dataset.status === activeTab;
-        const matchesSearch = !q || id.includes(q) || name.includes(q) || mobile.includes(q);
+        const sid = tr.dataset.id.toLowerCase();
+        const sname = tr.dataset.name.toLowerCase();
+        const smobile = tr.dataset.mobile.toLowerCase();
+        const isWorking = tr.dataset.working === 'yes';
+        const isEnrolled = tr.dataset.enrolled === 'yes';
+
+        let matchesTab = true;
+        if (currentTab === 'working') matchesTab = isWorking;
+        if (currentTab === 'pending') matchesTab = !isEnrolled;
+
+        const matchesSearch = !q || sid.includes(q) || sname.includes(q) || smobile.includes(q);
         const show = matchesTab && matchesSearch;
+
         tr.style.display = show ? '' : 'none';
-        if (show) visibleCount += 1;
+        if (show) visible++;
     });
 
-    if (visibleCount === 0) {
-        noMatchRow.style.display = '';
-        noMatchRow.querySelector('td').textContent = q
-            ? 'No matches in this view.'
-            : (activeTab === 'enrolled' ? 'No one has been face-captured yet.' : 'Nobody pending — everyone on the roster is captured.');
-    } else {
-        noMatchRow.style.display = 'none';
-    }
+    noMatchRow.style.display = visible === 0 ? '' : 'none';
 }
-document.getElementById('search').addEventListener('input', filterRows);
+
+searchInput.addEventListener('input', filterStaff);
 
 document.querySelectorAll('.tab-btn').forEach(btn => {
     btn.addEventListener('click', () => {
         document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
-        activeTab = btn.dataset.tab;
-        filterRows();
+        currentTab = btn.dataset.tab;
+        filterStaff();
     });
 });
-
-filterRows();
 
 document.querySelectorAll('[data-delete-id]').forEach(btn => {
     btn.addEventListener('click', async () => {
         const id = btn.dataset.deleteId;
         const name = btn.dataset.deleteName;
-        if (!confirm(`Delete ${id} — ${name}? This removes their face photos and attendance history. This cannot be undone.`)) {
+        if (!confirm(`Are you sure you want to delete ${name} (${id})? This will delete their biometric facial data and attendance logs. This action cannot be undone.`)) {
             return;
         }
         btn.disabled = true;
@@ -109,11 +145,11 @@ document.querySelectorAll('[data-delete-id]').forEach(btn => {
             if (data.ok) {
                 btn.closest('tr').remove();
             } else {
-                alert(data.reason || 'Could not delete student');
+                alert(data.reason || 'Could not delete staff member');
                 btn.disabled = false;
             }
-        } catch (err) {
-            alert('Error contacting server: ' + err.message);
+        } catch (e) {
+            alert('Server error: ' + e.message);
             btn.disabled = false;
         }
     });

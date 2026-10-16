@@ -1,275 +1,230 @@
 {% extends "base.html" %}
-{% block title %}Enroll — PSNA SIP Attendance{% endblock %}
+{% block title %}Enroll Staff — {{ hotel_name }}{% endblock %}
+
 {% block content %}
-<h1>Enroll Student</h1>
-<p class="subtitle">Ask for their mobile number first — if they're on the pre-registered list, their name comes up to confirm; otherwise register them fresh.</p>
-
-<div class="card" id="lookup-card">
-    <label for="mobile_number">Mobile Number</label>
-    <input type="tel" id="mobile_number" inputmode="numeric" maxlength="10" placeholder="10-digit mobile number" autocomplete="off">
-    <div class="lookup-result" id="lookup-result"></div>
-
-    <div id="new-name-row" style="display:none;">
-        <label for="student_name">Full Name</label>
-        <input type="text" id="student_name" placeholder="e.g. Priya Sharma">
+<div class="enroll-wrapper">
+    <div class="page-header" style="text-align: center; display: block; margin-bottom: 20px;">
+        <h1>Hotel Staff Face Enrollment</h1>
+        <p class="subtitle">Quick 1-photo biometric registration with automatic multi-perspective augmentation.</p>
     </div>
 
-    <button id="start-btn" disabled>Start Camera</button>
-</div>
+    <!-- Registration Card -->
+    <div class="card" id="form-card">
+        <div class="field-grid">
+            <div>
+                <label for="mobile_number">Mobile Phone (10 Digits)</label>
+                <input type="tel" id="mobile_number" inputmode="numeric" maxlength="10" placeholder="e.g. 9876543210" autocomplete="off">
+                <div id="mobile-hint" style="font-size: 11px; color: var(--text-muted); margin-top: 4px;"></div>
+            </div>
+            <div>
+                <label for="staff_name">Full Name</label>
+                <input type="text" id="staff_name" placeholder="e.g. Vikram Anand">
+            </div>
+        </div>
 
-<div class="card" id="capture-card" style="display:none;">
-    <div class="angle-row" id="angle-row"></div>
-    <div class="instruction" id="instruction"></div>
+        <div class="cam-preview-box" id="cam-box">
+            <video id="video" autoplay playsinline muted></video>
+            <div class="face-oval-guide"></div>
+            <div id="cam-idle-overlay" style="position: absolute; inset: 0; background: rgba(12, 16, 23, 0.9); display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--text-secondary); gap: 12px;">
+                <div style="font-size: 32px;">📷</div>
+                <div style="font-size: 14px;">Camera is standby</div>
+                <button type="button" id="start-cam-btn">Open Camera</button>
+            </div>
+        </div>
+        <canvas id="canvas" style="display: none;"></canvas>
 
-    <div class="video-wrap">
-        <video id="video" autoplay playsinline muted></video>
+        <div style="display: flex; gap: 12px; align-items: center;">
+            <button type="button" id="enroll-btn" style="flex: 1;" disabled>
+                <span>📸 Capture &amp; Enroll Staff</span>
+            </button>
+        </div>
+
+        <div class="feedback-msg" id="feedback"></div>
     </div>
-    <canvas id="canvas" style="display:none;"></canvas>
 
-    <div class="status-msg" id="status-msg"></div>
+    <!-- Success Confirmation Card -->
+    <div class="card" id="success-card" style="display: none; text-align: center; padding: 36px 24px;">
+        <div style="width: 64px; height: 64px; border-radius: 50%; background: var(--green-soft); color: var(--green); border: 2px solid var(--green); font-size: 30px; display: flex; align-items: center; justify-content: center; margin: 0 auto 16px;">
+            ✓
+        </div>
+        <h2 style="font-family: 'Outfit', sans-serif; font-size: 24px; color: #fff; margin-bottom: 6px;">Staff Successfully Enrolled!</h2>
+        <p style="color: var(--text-secondary); font-size: 14px; margin-bottom: 20px;">
+            Assigned Staff ID: <strong id="succ-id" style="color: var(--gold-bright); font-size: 16px;"></strong>
+        </p>
 
-    <div class="controls">
-        <button id="capture-btn">Capture</button>
-        <button id="submit-btn" class="secondary" disabled>Submit Enrollment</button>
+        <div style="background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px; margin-bottom: 24px; max-width: 360px; margin-left: auto; margin-right: auto; text-align: left; font-size: 13px;">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+                <span style="color: var(--text-muted);">Name:</span>
+                <strong id="succ-name" style="color: #fff;"></strong>
+            </div>
+            <div style="display: flex; justify-content: space-between;">
+                <span style="color: var(--text-muted);">Mobile:</span>
+                <span id="succ-phone" style="color: var(--text-primary);"></span>
+            </div>
+        </div>
+
+        <div style="display: flex; gap: 12px; justify-content: center;">
+            <button type="button" id="enroll-another-btn">Enroll Another</button>
+            <a href="/staff" class="btn btn-secondary">View Staff Directory</a>
+        </div>
     </div>
-</div>
-
-<div class="card" id="done-card" style="display:none;">
-    <div class="done-banner" id="done-banner"></div>
 </div>
 
 <script>
-const ANGLE_LABELS = {{ angle_labels | tojson }};
-const ANGLE_INSTRUCTIONS = {{ angle_instructions | tojson }};
-
 const mobileInput = document.getElementById('mobile_number');
-const lookupResult = document.getElementById('lookup-result');
-const newNameRow = document.getElementById('new-name-row');
-const studentNameInput = document.getElementById('student_name');
-const startBtn = document.getElementById('start-btn');
-const captureCard = document.getElementById('capture-card');
-const doneCard = document.getElementById('done-card');
+const mobileHint = document.getElementById('mobile-hint');
+const nameInput = document.getElementById('staff_name');
+const startCamBtn = document.getElementById('start-cam-btn');
+const camIdleOverlay = document.getElementById('cam-idle-overlay');
 const video = document.getElementById('video');
 const canvas = document.getElementById('canvas');
-const angleRow = document.getElementById('angle-row');
-const instructionEl = document.getElementById('instruction');
-const statusMsg = document.getElementById('status-msg');
-const captureBtn = document.getElementById('capture-btn');
-const submitBtn = document.getElementById('submit-btn');
+const enrollBtn = document.getElementById('enroll-btn');
+const feedback = document.getElementById('feedback');
 
-let currentIndex = 0;
-const capturedPhotos = {}; // angle_label -> embedding array
+const formCard = document.getElementById('form-card');
+const successCard = document.getElementById('success-card');
+const succId = document.getElementById('succ-id');
+const succName = document.getElementById('succ-name');
+const succPhone = document.getElementById('succ-phone');
+const enrollAnotherBtn = document.getElementById('enroll-another-btn');
+
 let stream = null;
+let cameraActive = false;
 
-// idle: fewer than 10 digits typed yet
-// checking: lookup request in flight
-// found-empty: pre-registered, no photos yet — ready to attach a capture
-// found-enrolled: pre-registered AND already has photos — blocked, avoid overwrite
-// new: mobile number not on the roster — manual name entry, brand-new student
-let lookupState = 'idle';
-let resolvedStudentId = null;
-let resolvedName = null;
-let lookupTimer = null;
-
-function setLookupResult(kind, text) {
-    lookupResult.className = 'lookup-result' + (kind ? ' ' + kind : '');
-    lookupResult.textContent = text;
+function setFeedback(isOk, text) {
+    feedback.className = 'feedback-msg ' + (isOk ? 'ok' : 'err');
+    feedback.textContent = text;
 }
 
-function updateStartEnabled() {
-    if (lookupState === 'found-empty') {
-        startBtn.disabled = false;
-    } else if (lookupState === 'new') {
-        startBtn.disabled = !studentNameInput.value.trim();
-    } else {
-        startBtn.disabled = true;
-    }
+function checkReady() {
+    const hasName = nameInput.value.trim().length > 1;
+    const hasPhone = mobileInput.value.trim().length === 10;
+    enrollBtn.disabled = !(cameraActive && hasName && hasPhone);
 }
 
-async function doLookup() {
-    const mobile = mobileInput.value;
-    try {
-        const res = await fetch('/api/students/lookup?mobile=' + encodeURIComponent(mobile));
-        const data = await res.json();
-        if (mobileInput.value !== mobile) return; // number changed while this was in flight
-
-        if (!data.found) {
-            lookupState = 'new';
-            resolvedStudentId = null;
-            resolvedName = null;
-            newNameRow.style.display = 'block';
-            setLookupResult('new', 'Not on the pre-registered list — enter their name to register them now.');
-        } else if (data.has_photos) {
-            lookupState = 'found-enrolled';
-            resolvedStudentId = null;
-            resolvedName = null;
-            setLookupResult('blocked', `Already enrolled as ${data.name} (${data.student_id}) with face photos. Use the Students page to re-capture instead.`);
-        } else {
-            lookupState = 'found-empty';
-            resolvedStudentId = data.student_id;
-            resolvedName = data.name;
-            setLookupResult('found', `${data.name} — ${data.student_id}. Confirm this matches the person in front of you, then start the camera.`);
-        }
-    } catch (err) {
-        lookupState = 'idle';
-        setLookupResult('err', 'Error checking number: ' + err.message);
-    }
-    updateStartEnabled();
-}
-
-mobileInput.addEventListener('input', () => {
+mobileInput.addEventListener('input', async () => {
     mobileInput.value = mobileInput.value.replace(/\D/g, '').slice(0, 10);
-    resolvedStudentId = null;
-    resolvedName = null;
-    newNameRow.style.display = 'none';
-    studentNameInput.value = '';
-    clearTimeout(lookupTimer);
-
-    if (mobileInput.value.length !== 10) {
-        lookupState = 'idle';
-        setLookupResult('', '');
-        updateStartEnabled();
-        return;
+    const val = mobileInput.value;
+    if (val.length === 10) {
+        mobileHint.textContent = 'Checking directory…';
+        try {
+            const res = await fetch('/api/staff/lookup?mobile=' + val);
+            const d = await res.json();
+            if (d.found) {
+                mobileHint.textContent = 'Already in system: ' + d.name + ' (' + d.student_id + ')';
+                mobileHint.style.color = 'var(--gold-bright)';
+                if (!nameInput.value.trim()) nameInput.value = d.name;
+            } else {
+                mobileHint.textContent = 'Available new mobile number';
+                mobileHint.style.color = 'var(--green)';
+            }
+        } catch (e) {
+            mobileHint.textContent = '';
+        }
+    } else {
+        mobileHint.textContent = '';
     }
-
-    lookupState = 'checking';
-    setLookupResult('', 'Checking…');
-    updateStartEnabled();
-    lookupTimer = setTimeout(doLookup, 300);
+    checkReady();
 });
 
-studentNameInput.addEventListener('input', updateStartEnabled);
+nameInput.addEventListener('input', checkReady);
 
-function renderAngleRow() {
-    angleRow.innerHTML = '';
-    ANGLE_LABELS.forEach((label, i) => {
-        const chip = document.createElement('span');
-        chip.className = 'angle-chip';
-        if (capturedPhotos[label]) chip.classList.add('done');
-        else if (i === currentIndex) chip.classList.add('active');
-        chip.textContent = label;
-        angleRow.appendChild(chip);
-    });
-}
-
-function setStatus(msg, kind) {
-    statusMsg.textContent = msg;
-    statusMsg.className = 'status-msg' + (kind ? ' ' + kind : '');
-}
-
-function updateInstruction() {
-    if (currentIndex >= ANGLE_LABELS.length) {
-        instructionEl.textContent = 'All photos captured';
-        captureBtn.disabled = true;
-        submitBtn.disabled = false;
-        return;
-    }
-    const label = ANGLE_LABELS[currentIndex];
-    instructionEl.textContent = ANGLE_INSTRUCTIONS[label];
-}
-
-startBtn.addEventListener('click', async () => {
-    if (lookupState === 'new' && !studentNameInput.value.trim()) {
-        alert('Please enter the student\'s name.');
-        return;
-    }
+async function openCamera() {
     try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
+        stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
+            audio: false,
+        });
         video.srcObject = stream;
+        await video.play();
+        camIdleOverlay.style.display = 'none';
+        cameraActive = true;
+        checkReady();
     } catch (err) {
-        alert('Could not access camera: ' + err.message);
+        setFeedback(false, 'Cannot access camera. Please allow camera permissions in your browser.');
+    }
+}
+
+startCamBtn.addEventListener('click', openCamera);
+
+enrollBtn.addEventListener('click', async () => {
+    const name = nameInput.value.trim();
+    const phone = mobileInput.value.trim();
+    if (!name || phone.length !== 10) {
+        setFeedback(false, 'Please enter a valid Name and 10-digit mobile number.');
         return;
     }
-    captureCard.style.display = 'block';
-    startBtn.disabled = true;
-    mobileInput.disabled = true;
-    studentNameInput.disabled = true;
-    renderAngleRow();
-    updateInstruction();
-});
 
-captureBtn.addEventListener('click', () => {
-    if (currentIndex >= ANGLE_LABELS.length) return;
+    enrollBtn.disabled = true;
+    setFeedback(true, 'Capturing frame and verifying face…');
+
+    // Capture single frame
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
     const ctx = canvas.getContext('2d');
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-    canvas.toBlob(async (blob) => {
-        setStatus('Checking photo…', '');
-        captureBtn.disabled = true;
-        const formData = new FormData();
-        formData.append('image', blob, 'capture.jpg');
-        try {
-            const res = await fetch('/api/enroll/validate-photo', { method: 'POST', body: formData });
-            const data = await res.json();
-            if (data.ok) {
-                const label = ANGLE_LABELS[currentIndex];
-                capturedPhotos[label] = data.embedding;
-                setStatus('Captured: ' + label, 'ok');
-                currentIndex += 1;
-                renderAngleRow();
-                updateInstruction();
-            } else {
-                setStatus(data.reason || 'Could not validate photo, try again', 'err');
-            }
-        } catch (err) {
-            setStatus('Error contacting server: ' + err.message, 'err');
-        } finally {
-            captureBtn.disabled = currentIndex >= ANGLE_LABELS.length;
-        }
-    }, 'image/jpeg', 0.92);
-});
-
-submitBtn.addEventListener('click', async () => {
-    submitBtn.disabled = true;
-    setStatus('Submitting enrollment…', '');
-    const photos = ANGLE_LABELS.map(label => ({ angle_label: label, embedding: capturedPhotos[label] }));
+    const blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', 0.90));
+    const fd = new FormData();
+    fd.append('image', blob, 'enroll.jpg');
 
     try {
-        let res, data, displayId, displayName;
+        const valRes = await fetch('/api/enroll/validate-photo', { method: 'POST', body: fd });
+        const valData = await valRes.json();
 
-        if (lookupState === 'found-empty') {
-            // Pre-registered student — attach this capture to their existing ID.
-            res = await fetch(`/api/students/${resolvedStudentId}/recapture`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ photos }),
-            });
-            data = await res.json();
-            displayId = resolvedStudentId;
-            displayName = resolvedName;
-        } else {
-            // Not on the roster — brand-new student, system assigns the ID.
-            res = await fetch('/api/enroll/submit', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    name: studentNameInput.value.trim(),
-                    mobile_number: mobileInput.value,
-                    photos: photos,
-                }),
-            });
-            data = await res.json();
-            displayId = data.student_id;
-            displayName = studentNameInput.value.trim();
+        if (!valData.ok) {
+            setFeedback(false, valData.reason || 'Face verification failed. Please hold still and face the camera.');
+            enrollBtn.disabled = false;
+            return;
         }
 
-        if (data.ok) {
-            if (stream) stream.getTracks().forEach(t => t.stop());
-            captureCard.style.display = 'none';
-            doneCard.style.display = 'block';
-            document.getElementById('done-banner').textContent =
-                'Enrolled ' + displayId + ' — ' + displayName + '. Reloading for next student…';
-            setTimeout(() => window.location.reload(), 1800);
-        } else {
-            setStatus(data.reason || 'Enrollment failed', 'err');
-            submitBtn.disabled = false;
+        setFeedback(true, 'Face verified! Generating biometric vector profile…');
+
+        // Submit enrollment with auto-augmented embeddings
+        const submitPayload = {
+            name: name,
+            mobile_number: phone,
+            photos: valData.photos.map(p => ({
+                angle_label: p.angle_label,
+                embedding: p.embedding
+            }))
+        };
+
+        const subRes = await fetch('/api/enroll/submit', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(submitPayload)
+        });
+        const subData = await subRes.json();
+
+        if (!subData.ok) {
+            setFeedback(false, subData.reason || 'Could not complete enrollment.');
+            enrollBtn.disabled = false;
+            return;
         }
+
+        // Show Success Card
+        succId.textContent = subData.staff_id;
+        succName.textContent = name;
+        succPhone.textContent = phone;
+        formCard.style.display = 'none';
+        successCard.style.display = 'block';
+
     } catch (err) {
-        setStatus('Error contacting server: ' + err.message, 'err');
-        submitBtn.disabled = false;
+        setFeedback(false, 'Server communication error: ' + err.message);
+        enrollBtn.disabled = false;
     }
+});
+
+enrollAnotherBtn.addEventListener('click', () => {
+    nameInput.value = '';
+    mobileInput.value = '';
+    mobileHint.textContent = '';
+    feedback.className = 'feedback-msg';
+    feedback.textContent = '';
+    successCard.style.display = 'none';
+    formCard.style.display = 'block';
+    checkReady();
 });
 </script>
 {% endblock %}

@@ -1,0 +1,164 @@
+{% extends "base.html" %}
+{% block title %}Owner Dashboard — {{ hotel_name }}{% endblock %}
+{% block container_class %}wide{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1>Owner &amp; Management Dashboard</h1>
+        <p class="subtitle">Live staff shift attendance, clock-in tracking, and daily work hours for {{ today_date }}.</p>
+    </div>
+    <div style="display: flex; gap: 10px;">
+        <a href="/scan" class="btn">Launch Kiosk Terminal</a>
+        <a href="/report?preset=today" class="btn btn-secondary">Today's Timesheet</a>
+    </div>
+</div>
+
+<div class="kpi-grid">
+    <div class="kpi-card">
+        <div class="kpi-label">
+            <span>Total Hotel Staff</span>
+            <span>👥</span>
+        </div>
+        <div class="kpi-value" id="kpi-total">{{ total_staff }}</div>
+        <div class="kpi-sub">{{ total_enrolled }} face-enrolled</div>
+    </div>
+
+    <div class="kpi-card">
+        <div class="kpi-label">
+            <span>Present Today</span>
+            <span>🟢</span>
+        </div>
+        <div class="kpi-value" id="kpi-present">{{ present_count }}</div>
+        <div class="kpi-sub highlight">
+            {% if total_enrolled > 0 %}
+                {{ "%.0f"|format((present_count / total_enrolled) * 100) }}% attendance rate
+            {% else %}
+                0%
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="kpi-card">
+        <div class="kpi-label">
+            <span>Clocked In Now</span>
+            <span>⏱️</span>
+        </div>
+        <div class="kpi-value" id="kpi-clocked" style="color: var(--gold-bright);">{{ clocked_in_now }}</div>
+        <div class="kpi-sub">Active shift on hotel floor</div>
+    </div>
+
+    <div class="kpi-card">
+        <div class="kpi-label">
+            <span>Hours Logged Today</span>
+            <span>⚡</span>
+        </div>
+        <div class="kpi-value" id="kpi-hours" style="color: var(--green);">{{ total_hours_today }}h</div>
+        <div class="kpi-sub">Combined staff shift duration</div>
+    </div>
+</div>
+
+<div style="display: grid; grid-template-columns: 2fr 1fr; gap: 24px;">
+    <!-- Active Shifts Table -->
+    <div class="card" style="margin-bottom: 0;">
+        <div class="card-title">
+            <span>Today's Staff Roster ({{ roster|length }})</span>
+            <span style="font-size: 13px; font-weight: 500; color: var(--text-muted);">First IN → Last OUT</span>
+        </div>
+
+        <div class="table-scroll">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Staff ID</th>
+                        <th>Name</th>
+                        <th>First IN</th>
+                        <th>Last OUT</th>
+                        <th>Total Hours</th>
+                        <th>Punches</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody id="roster-tbody">
+                    {% for r in roster %}
+                    <tr>
+                        <td><strong style="color: var(--gold-bright);">{{ r.staff_id }}</strong></td>
+                        <td><strong>{{ r.name }}</strong></td>
+                        <td>{{ r.first_in }}</td>
+                        <td>{{ r.last_out }}</td>
+                        <td><strong style="color: var(--text-primary);">{{ r.duration_str }}</strong></td>
+                        <td>{{ r.punch_count }}</td>
+                        <td>
+                            {% if r.status == 'Working' %}
+                            <span class="badge working">● Working</span>
+                            {% else %}
+                            <span class="badge present">✓ Completed</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                    {% if not roster %}
+                    <tr>
+                        <td colspan="7" style="text-align: center; padding: 36px; color: var(--text-muted);">
+                            No attendance punches recorded yet today. Staff scans at the <a href="/scan" style="color: var(--gold);">Kiosk Terminal</a> will appear here instantly.
+                        </td>
+                    </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Live Recent Punches & Quick Links -->
+    <div style="display: flex; flex-direction: column; gap: 20px;">
+        <div class="card" style="margin-bottom: 0;">
+            <div class="card-title">Recent Activity Feed</div>
+            <div style="display: flex; flex-direction: column; gap: 10px;">
+                {% for p in recent_punches %}
+                <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; background: var(--bg); border-radius: var(--radius-sm); border: 1px solid var(--border);">
+                    <div>
+                        <div style="font-weight: 600; font-size: 13px; color: #fff;">{{ p.name }}</div>
+                        <div style="font-size: 11px; color: var(--gold-bright);">{{ p.staff_id }}</div>
+                    </div>
+                    <div style="font-size: 12px; color: var(--text-muted); font-family: monospace;">
+                        {{ p.punch_time[11:16] }}
+                    </div>
+                </div>
+                {% endfor %}
+                {% if not recent_punches %}
+                <div style="color: var(--text-muted); font-size: 13px; text-align: center; padding: 16px;">
+                    No recent activity yet.
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="card" style="margin-bottom: 0;">
+            <div class="card-title">Management Actions</div>
+            <div style="display: flex; flex-direction: column; gap: 10px;">
+                <a href="/enroll" class="btn" style="width: 100%;">+ Register New Staff</a>
+                <a href="/staff" class="btn btn-secondary" style="width: 100%;">View All Staff Directory</a>
+                <a href="/report?preset=week" class="btn btn-secondary" style="width: 100%;">Weekly Timesheet Report</a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Auto-refresh stats every 15 seconds
+async function refreshDashboardStats() {
+    try {
+        const res = await fetch('/api/dashboard/stats');
+        if (!res.ok) return;
+        const d = await res.json();
+        document.getElementById('kpi-total').textContent = d.total_staff;
+        document.getElementById('kpi-present').textContent = d.present_count;
+        document.getElementById('kpi-clocked').textContent = d.clocked_in_now;
+        document.getElementById('kpi-hours').textContent = d.total_hours_today + 'h';
+    } catch (e) {
+        // quiet error on network blip
+    }
+}
+setInterval(refreshDashboardStats, 15000);
+</script>
+{% endblock %}

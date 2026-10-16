@@ -1,6 +1,7 @@
 import csv
 import io
 from pathlib import Path
+from datetime import datetime
 
 from fastapi import FastAPI, Request, UploadFile, File, Form, HTTPException
 from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse, Response
@@ -10,6 +11,7 @@ from pydantic import BaseModel
 
 from app.db import db_session, init_schema
 from app.students import (
+    next_staff_id,
     next_student_id,
     student_exists,
     list_students,
@@ -22,15 +24,15 @@ from app.students import (
     replace_embeddings,
     delete_student,
 )
-from app.face import decode_image, validate_and_embed, detect_and_embed_all, embedding_to_blob
-from app.config import ANGLE_LABELS, ANGLE_INSTRUCTIONS
+from app.face import decode_image, validate_and_embed_single, detect_and_embed_all, embedding_to_blob
+from app.config import HOTEL_NAME, HOTEL_SUBTITLE
 from app.matching import match_embedding, reload_gallery
-from app.attendance import mark_attendance
-from app.report import parse_report_params, build_report, render_pdf
+from app.attendance import IST, record_staff_punch, format_duration
+from app.report import parse_report_params, build_hotel_report, render_hotel_pdf
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-app = FastAPI(title="SIP Attendance")
+app = FastAPI(title=f"{HOTEL_NAME} — Attendance System")
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=BASE_DIR / "templates")
 
@@ -42,23 +44,182 @@ def _startup():
 
 
 @app.get("/")
-def root():
-    return RedirectResponse(url="/enroll")
+def dashboard_page(request: Request):
+    """Hotel Owner Command Dashboard: Real-time attendance KPIs, active shifts, and live punch log."""
+    today = datetime.now(IST).date().isoformat()
+    with db_session() as conn:
+        total_staff = conn.execute("SELECT COUNT(*) AS c FROM students").fetchone()["c"]
+        total_enrolled = conn.execute(
+            "SELECT COUNT(DISTINCT student_id) AS c FROM embeddings"
+        ).fetchone()["c"]
+
+        # Today's daily attendance rows
+        today_rows = conn.execute(
+            """
+            SELECT 
+                da.staff_id,
+                s.name,
+                s.mobile_number,
+                da.first_in,
+                da.last_out,
+                da.total_hours,
+                da.punch_count,
+                da.last_punch_at,
+                da.status
+            FROM daily_attendance da
+            JOIN students s ON s.student_id = da.staff_id
+            WHERE da.work_date = ?
+            ORDER BY da.last_punch_at DESC
+            """,
+            (today,),
+        ).fetchall()
+
+        present_count = len(today_rows)
+        clocked_in_now = sum(1 for r in today_rows if r["status"] == "Working")
+        total_hours_today = round(sum(float(r["total_hours"]) for r in today_rows), 1)
+
+        # Recent 8 raw punches
+        recent_punches = conn.execute(
+            """
+            SELECT p.punch_time, p.staff_id, s.name
+            FROM attendance_punches p
+            JOIN students s ON s.student_id = p.staff_id
+            WHERE p.work_date = ?
+            ORDER BY p.punch_time DESC
+            LIMIT 8
+            """,
+            (today,),
+        ).fetchall()
+
+        formatted_roster = []
+        for r in today_rows:
+            try:
+                first_in_disp = datetime.strptime(r["first_in"], '%Y-%m-%d %H:%M:%S').strftime('%I:%M %p')
+            except Exception:
+                first_in_disp = r["first_in"]
+            try:
+                last_out_disp = datetime.strptime(r["last_out"], '%Y-%m-%d %H:%M:%S').strftime('%I:%M %p')
+            except Exception:
+                last_out_disp = r["last_out"]
+
+            formatted_roster.append({
+                "staff_id": r["staff_id"],
+                "name": r["name"],
+                "mobile_number": r["mobile_number"],
+                "first_in": first_in_disp,
+                "last_out": last_out_disp,
+                "total_hours": float(r["total_hours"]),
+                "duration_str": format_duration(float(r["total_hours"])),
+                "punch_count": r["punch_count"],
+                "status": r["status"],
+            })
+
+    return templates.TemplateResponse(
+        "dashboard.html",
+        {
+            "request": request,
+            "hotel_name": HOTEL_NAME,
+            "hotel_subtitle": HOTEL_SUBTITLE,
+            "today_date": today,
+            "total_staff": total_staff,
+            "total_enrolled": total_enrolled,
+            "present_count": present_count,
+            "clocked_in_now": clocked_in_now,
+            "total_hours_today": total_hours_today,
+            "recent_punches": recent_punches,
+            "roster": formatted_roster,
+        },
+    )
+
+
+@app.get("/api/dashboard/stats")
+def api_dashboard_stats():
+    """Live JSON endpoint for real-time dashboard auto-refresh."""
+    today = datetime.now(IST).date().isoformat()
+    with db_session() as conn:
+        total_staff = conn.execute("SELECT COUNT(*) AS c FROM students").fetchone()["c"]
+        today_rows = conn.execute(
+            "SELECT total_hours, status FROM daily_attendance WHERE work_date = ?", (today,)
+        ).fetchall()
+        present_count = len(today_rows)
+        clocked_in_now = sum(1 for r in today_rows if r["status"] == "Working")
+        total_hours = round(sum(float(r["total_hours"]) for r in today_rows), 1)
+
+    return JSONResponse({
+        "total_staff": total_staff,
+        "present_count": present_count,
+        "clocked_in_now": clocked_in_now,
+        "total_hours_today": total_hours,
+        "today_date": today,
+    })
+
+
+@app.get("/scan")
+def scan_page(request: Request):
+    """Hotel Biometric Terminal Scanner page."""
+    return templates.TemplateResponse(
+        "scan.html",
+        {
+            "request": request,
+            "hotel_name": HOTEL_NAME,
+            "hotel_subtitle": HOTEL_SUBTITLE,
+        },
+    )
+
+
+@app.post("/api/scan")
+async def scan(image: UploadFile = File(...)):
+    """Live facial recognition scanner endpoint.
+
+    Matches detected faces and computes First IN / Last OUT / Active Shift Hours.
+    """
+    image_bytes = await image.read()
+    img = decode_image(image_bytes)
+    detections = detect_and_embed_all(img)
+
+    faces = []
+    for det in detections:
+        match = match_embedding(det["embedding"])
+        if match is None:
+            faces.append({"bbox": det["bbox"], "status": "unknown"})
+            continue
+
+        punch = record_staff_punch(match["student_id"])
+        faces.append(
+            {
+                "bbox": det["bbox"],
+                "status": "match",
+                "student_id": match["student_id"],
+                "name": match["name"],
+                "action": punch["action"],
+                "first_in": punch["first_in"],
+                "last_out": punch["last_out"],
+                "total_hours": punch["total_hours"],
+                "duration_str": punch["duration_str"],
+                "message": punch["message"],
+                "speech": punch.get("speech") or f"{match['name']}, {punch['duration_str']}",
+                "already_marked": punch["already"],
+            }
+        )
+
+    return JSONResponse({"faces": faces})
 
 
 @app.get("/enroll")
 def enroll_page(request: Request):
+    """1-Click Single Photo Staff Enrollment page."""
     return templates.TemplateResponse(
         "enroll.html",
         {
             "request": request,
-            "angle_labels": ANGLE_LABELS,
-            "angle_instructions": ANGLE_INSTRUCTIONS,
+            "hotel_name": HOTEL_NAME,
+            "hotel_subtitle": HOTEL_SUBTITLE,
         },
     )
 
 
 @app.get("/api/students/lookup")
+@app.get("/api/staff/lookup")
 def lookup_student(mobile: str = ""):
     number = normalize_mobile(mobile)
     if number is None:
@@ -82,9 +243,10 @@ def lookup_student(mobile: str = ""):
 
 @app.post("/api/enroll/validate-photo")
 async def validate_photo(image: UploadFile = File(...)):
+    """Single photo validation with auto-augmented embeddings."""
     image_bytes = await image.read()
     img = decode_image(image_bytes)
-    result = validate_and_embed(img)
+    result = validate_and_embed_single(img)
     return JSONResponse(result)
 
 
@@ -101,10 +263,6 @@ class EnrollSubmitIn(BaseModel):
 
 @app.post("/api/enroll/submit")
 def enroll_submit(payload: EnrollSubmitIn):
-    """New-registration path: mobile number didn't match anyone in the
-    pre-loaded roster, so a brand-new student row is created here (walk-in,
-    or not yet in the CSV). student_id is always system-assigned, never
-    typed."""
     name = payload.name.strip()
     mobile_number = normalize_mobile(payload.mobile_number)
 
@@ -112,56 +270,63 @@ def enroll_submit(payload: EnrollSubmitIn):
         return JSONResponse({"ok": False, "reason": "Name is required"}, status_code=400)
     if mobile_number is None:
         return JSONResponse({"ok": False, "reason": "Enter a valid 10-digit mobile number"}, status_code=400)
-
-    if len(payload.photos) < len(ANGLE_LABELS):
-        return JSONResponse(
-            {"ok": False, "reason": f"Need {len(ANGLE_LABELS)} validated photos, got {len(payload.photos)}"},
-            status_code=400,
-        )
+    if not payload.photos:
+        return JSONResponse({"ok": False, "reason": "At least one valid photo embedding is required"}, status_code=400)
 
     with db_session() as conn:
         if mobile_in_use(conn, mobile_number):
             return JSONResponse(
-                {"ok": False, "reason": f"{mobile_number} is already enrolled — look them up instead of adding new"},
+                {"ok": False, "reason": f"Phone {mobile_number} is already enrolled for another staff member."},
                 status_code=409,
             )
 
-        student_id = next_student_id(conn)
+        staff_id = next_staff_id(conn, prefix="HTL")
         conn.execute(
             "INSERT INTO students (student_id, name, mobile_number) VALUES (?, ?, ?)",
-            (student_id, name, mobile_number),
+            (staff_id, name, mobile_number),
         )
         for photo in payload.photos:
             conn.execute(
                 "INSERT INTO embeddings (student_id, embedding, angle_label) VALUES (?, ?, ?)",
-                (student_id, embedding_to_blob(photo.embedding), photo.angle_label),
+                (staff_id, embedding_to_blob(photo.embedding), photo.angle_label),
             )
 
     reload_gallery()
-    return JSONResponse({"ok": True, "student_id": student_id})
+    return JSONResponse({"ok": True, "student_id": staff_id, "staff_id": staff_id})
 
 
+@app.get("/staff")
 @app.get("/students")
-def students_page(request: Request):
+def staff_directory_page(request: Request):
+    """Hotel Staff Directory & Roster."""
     with db_session() as conn:
-        students = list_students(conn)
-    return templates.TemplateResponse("students.html", {"request": request, "students": students})
+        staff_list = list_students(conn)
+    return templates.TemplateResponse(
+        "students.html",
+        {
+            "request": request,
+            "hotel_name": HOTEL_NAME,
+            "hotel_subtitle": HOTEL_SUBTITLE,
+            "students": staff_list,
+        },
+    )
 
 
+@app.get("/staff/{student_id}/edit")
 @app.get("/students/{student_id}/edit")
-def edit_student_page(request: Request, student_id: str):
+def edit_staff_page(request: Request, student_id: str):
     student_id = student_id.strip().upper()
     with db_session() as conn:
         student = get_student(conn, student_id)
         if student is None:
-            raise HTTPException(status_code=404, detail=f"Student {student_id} not found")
+            raise HTTPException(status_code=404, detail=f"Staff member {student_id} not found")
     return templates.TemplateResponse(
         "edit_student.html",
         {
             "request": request,
+            "hotel_name": HOTEL_NAME,
+            "hotel_subtitle": HOTEL_SUBTITLE,
             "student": student,
-            "angle_labels": ANGLE_LABELS,
-            "angle_instructions": ANGLE_INSTRUCTIONS,
         },
     )
 
@@ -186,7 +351,7 @@ def update_student(student_id: str, payload: UpdateStudentIn):
 
     with db_session() as conn:
         if not student_exists(conn, student_id):
-            return JSONResponse({"ok": False, "reason": f"Student {student_id} not found"}, status_code=404)
+            return JSONResponse({"ok": False, "reason": f"Staff {student_id} not found"}, status_code=404)
         existing = find_by_mobile(conn, mobile_number) if mobile_number else None
         if existing and existing["student_id"] != student_id:
             return JSONResponse(
@@ -204,7 +369,7 @@ def delete_student_endpoint(student_id: str):
     student_id = student_id.strip().upper()
     with db_session() as conn:
         if not student_exists(conn, student_id):
-            return JSONResponse({"ok": False, "reason": f"Student {student_id} not found"}, status_code=404)
+            return JSONResponse({"ok": False, "reason": f"Staff {student_id} not found"}, status_code=404)
         delete_student(conn, student_id)
 
     reload_gallery()
@@ -218,80 +383,51 @@ class RecaptureIn(BaseModel):
 @app.post("/api/students/{student_id}/recapture")
 def recapture_student(student_id: str, payload: RecaptureIn):
     student_id = student_id.strip().upper()
-
-    if len(payload.photos) < len(ANGLE_LABELS):
-        return JSONResponse(
-            {"ok": False, "reason": f"Need {len(ANGLE_LABELS)} validated photos, got {len(payload.photos)}"},
-            status_code=400,
-        )
+    if not payload.photos:
+        return JSONResponse({"ok": False, "reason": "Valid face photo required"}, status_code=400)
 
     with db_session() as conn:
         if not student_exists(conn, student_id):
-            return JSONResponse({"ok": False, "reason": f"Student {student_id} not found"}, status_code=404)
+            return JSONResponse({"ok": False, "reason": f"Staff {student_id} not found"}, status_code=404)
         replace_embeddings(conn, student_id, [p.model_dump() for p in payload.photos])
 
     reload_gallery()
     return JSONResponse({"ok": True, "student_id": student_id})
 
 
-@app.get("/scan")
-def scan_page(request: Request):
-    return templates.TemplateResponse("scan.html", {"request": request})
-
-
-@app.post("/api/scan")
-async def scan(image: UploadFile = File(...)):
-    image_bytes = await image.read()
-    img = decode_image(image_bytes)
-    detections = detect_and_embed_all(img)
-
-    faces = []
-    for det in detections:
-        match = match_embedding(det["embedding"])
-        if match is None:
-            faces.append({"bbox": det["bbox"], "status": "unknown"})
-            continue
-
-        att = mark_attendance(match["student_id"])
-        faces.append(
-            {
-                "bbox": det["bbox"],
-                "status": "match",
-                "student_id": match["student_id"],
-                "name": match["name"],
-                "session": att["session"],
-                "already_marked": att["already"],
-            }
-        )
-
-    return JSONResponse({"faces": faces})
-
-
 @app.get("/report")
 def report_page(request: Request):
+    """Hotel Owner Timesheet & Shift Hours Reports."""
     with db_session() as conn:
-        date_from, date_to, session_filter, status_filter, q = parse_report_params(request.query_params, conn)
-        data = build_report(conn, date_from, date_to, session_filter, status_filter, q)
+        date_from, date_to, status_filter, q = parse_report_params(request.query_params, conn)
+        data = build_hotel_report(conn, date_from, date_to, status_filter, q)
     return templates.TemplateResponse("report.html", {"request": request, **data})
 
 
 @app.get("/report/export.csv")
 def report_export_csv(request: Request):
+    """Download hotel shift attendance timesheet in CSV."""
     with db_session() as conn:
-        date_from, date_to, session_filter, status_filter, q = parse_report_params(request.query_params, conn)
-        data = build_report(conn, date_from, date_to, session_filter, status_filter, q)
+        date_from, date_to, status_filter, q = parse_report_params(request.query_params, conn)
+        data = build_hotel_report(conn, date_from, date_to, status_filter, q)
 
     output = io.StringIO()
     writer = csv.writer(output)
-    header = ["Student ID", "Name", "Mobile Number"] + [f"{d} {s.capitalize()}" for d, s in data["columns"]] + ["Attendance %"]
-    writer.writerow(header)
-    for stu in data["students"]:
-        row = [stu["student_id"], stu["name"], stu["mobile_number"] or ""]
-        row += ["Present" if stu["cells"][col] else "Absent" for col in data["columns"]]
-        row.append(f"{stu['pct']:.1f}")
-        writer.writerow(row)
+    writer.writerow(["Date", "Staff ID", "Name", "Mobile Number", "First IN", "Last OUT", "Total Hours", "Punches", "Status"])
+    for row in data["timesheet"]:
+        writer.writerow([
+            row["date"],
+            row["staff_id"],
+            row["name"],
+            row["mobile"],
+            row["first_in"],
+            row["last_out"],
+            f"{row['total_hours']:.2f}",
+            row["punch_count"],
+            row["status"],
+        ])
 
-    filename = f"attendance_{data['date_from']}_to_{data['date_to']}_{data['session_filter']}_{data['status_filter']}.csv"
+    filename = f"hotel_attendance_{data['date_from']}_to_{data['date_to']}.csv"
     return StreamingResponse(
         iter([output.getvalue()]),
         media_type="text/csv",
@@ -301,12 +437,13 @@ def report_export_csv(request: Request):
 
 @app.get("/report/export.pdf")
 def report_export_pdf(request: Request):
+    """Download styled hotel attendance timesheet in PDF."""
     with db_session() as conn:
-        date_from, date_to, session_filter, status_filter, q = parse_report_params(request.query_params, conn)
-        data = build_report(conn, date_from, date_to, session_filter, status_filter, q)
+        date_from, date_to, status_filter, q = parse_report_params(request.query_params, conn)
+        data = build_hotel_report(conn, date_from, date_to, status_filter, q)
 
-    pdf_bytes = render_pdf(data)
-    filename = f"attendance_{data['date_from']}_to_{data['date_to']}_{data['session_filter']}_{data['status_filter']}.pdf"
+    pdf_bytes = render_hotel_pdf(data)
+    filename = f"hotel_attendance_{data['date_from']}_to_{data['date_to']}.pdf"
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",

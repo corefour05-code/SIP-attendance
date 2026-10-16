@@ -1,16 +1,18 @@
-MIN_DET_SCORE = 0.5
-MIN_FACE_WIDTH_RATIO = 0.15
-BLUR_THRESHOLD = 80.0  # matches the reference repo's BLUR_LAPLACIAN_VAR_THRESHOLD
+HOTEL_NAME = "The Grand Luxe Hotel"
+HOTEL_SUBTITLE = "Staff Biometric Attendance & Shift Hours Portal"
 
-ANGLE_LABELS = ["front", "left", "right", "up", "down"]
-ANGLE_INSTRUCTIONS = {
-    "front": "Look straight at the camera",
-    "left": "Turn your head slightly left",
-    "right": "Turn your head slightly right",
-    "up": "Tilt your head slightly up",
-    "down": "Tilt your head slightly down",
-}
+# Face Detection & Quality Thresholds
+MIN_DET_SCORE = 0.50
+MIN_FACE_WIDTH_RATIO = 0.12  # Minimum face size in frame (12% width)
+BLUR_THRESHOLD = 70.0        # Laplacian variance threshold for sharpness
 
-# Same values as the reference repo's COSINE_MATCH_THRESHOLD / MATCH_MARGIN
-MATCH_THRESHOLD = 0.55
-MATCH_MARGIN = 0.05
+# Matching Thresholds (ArcFace Cosine Similarity)
+MATCH_THRESHOLD = 0.52
+MATCH_MARGIN = 0.04
+
+# Shift and Timezone Settings
+DEFAULT_TIMEZONE_HOURS = 5
+DEFAULT_TIMEZONE_MINUTES = 30  # Indian Standard Time (IST)
+
+# Debounce between punch updates for the same staff member in seconds
+PUNCH_DEBOUNCE_SECONDS = 20
