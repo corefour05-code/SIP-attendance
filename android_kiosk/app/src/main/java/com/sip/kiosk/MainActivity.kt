@@ -20,17 +20,15 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
-import com.jiangdg.ausbc.CameraClient
-import com.jiangdg.ausbc.callback.ICameraStateCallBack
-import com.jiangdg.ausbc.callback.IDeviceConnectCallBack
-import com.jiangdg.ausbc.camera.bean.CameraRequest
-import com.jiangdg.ausbc.widget.AspectRatioTextureView
+import com.jiangdg.usbcamera.UVCCameraHelper
+import com.serenegiant.usb.widget.CameraViewInterface
+import com.serenegiant.usb.widget.UVCCameraTextureView
 import kotlinx.coroutines.*
 import java.io.ByteArrayOutputStream
 import java.text.SimpleDateFormat
 import java.util.*
 
-class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
+class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener, CameraViewInterface.Callback {
 
     private lateinit var tvClock: TextView
     private lateinit var tvCameraStatus: TextView
@@ -50,8 +48,10 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private lateinit var prefs: SharedPreferences
     private val apiClient = ApiClient()
 
-    private var cameraClient: CameraClient? = null
-    private var textureView: AspectRatioTextureView? = null
+    private var cameraHelper: UVCCameraHelper? = null
+    private var uvcView: UVCCameraTextureView? = null
+    private var isRequest = false
+    private var isConnected = false
 
     private var tts: TextToSpeech? = null
     private var voiceEnabled = true
@@ -119,84 +119,85 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun initCamera() {
-        textureView = AspectRatioTextureView(this).apply {
+        uvcView = UVCCameraTextureView(this).apply {
             layoutParams = ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT
             )
-            setAspectRatio(1280, 720)
+            setCallback(this@MainActivity)
         }
-        cameraContainer.addView(textureView, 0)
+        cameraContainer.addView(uvcView, 0)
 
-        cameraClient = CameraClient.newBuilder(this)
-            .setEnableGpu(false)
-            .setRawImage(false)
-            .openDebug(true)
-            .setCameraStrategy(CameraClient.CameraStrategy.UVC)
-            .setCameraRequest(
-                CameraRequest.Builder()
-                    .setPreviewWidth(1280)
-                    .setPreviewHeight(720)
-                    .setRenderMode(CameraRequest.RenderMode.FIT_XY)
-                    .create()
-            )
-            .build()
-
-        cameraClient?.apply {
-            registerDeviceConnectCallBack(object : IDeviceConnectCallBack {
-                override fun onAttachDev(device: UsbDevice?) {
+        cameraHelper = UVCCameraHelper.getInstance().apply {
+            setDefaultPreviewSize(1280, 720)
+            setDefaultFrameFormat(UVCCameraHelper.FRAME_FORMAT_MJPEG)
+            initUSBMonitor(this@MainActivity, uvcView, object : UVCCameraHelper.OnMyDevConnectListener {
+                override fun onAttachDevice(device: UsbDevice?) {
                     runOnUiThread {
                         tvCameraStatus.text = "USB Camera Detected • Requesting Permission…"
-                        tvCameraStatus.setBackgroundResource(R.drawable.rounded_card)
+                    }
+                    if (!isRequest) {
+                        isRequest = true
+                        requestPermission(device)
                     }
                 }
 
-                override fun onDetachDev(device: UsbDevice?) {
+                override fun onDettachDevice(device: UsbDevice?) {
                     runOnUiThread {
                         tvCameraStatus.text = "USB Camera Disconnected"
                         overlayView.clearFaces()
                     }
+                    isRequest = false
+                    isConnected = false
                 }
 
-                override fun onConnectDev(device: UsbDevice?, isConnect: Boolean) {
-                    if (isConnect) {
-                        runOnUiThread {
+                override fun onConnectDev(device: UsbDevice?, isConn: Boolean) {
+                    isConnected = isConn
+                    runOnUiThread {
+                        if (isConn) {
                             tvCameraStatus.text = getString(R.string.camera_ready)
+                            openCamera()
                         }
                     }
                 }
 
                 override fun onDisConnectDev(device: UsbDevice?) {
+                    isConnected = false
                     runOnUiThread {
                         tvCameraStatus.text = "USB Disconnected"
                     }
                 }
-            })
 
-            registerCameraStateCallBack(object : ICameraStateCallBack {
-                override fun onCameraState(
-                    self: ICameraStateCallBack.State,
-                    msg: String?
-                ) {
+                override fun onCancelPermit(device: UsbDevice?) {
                     runOnUiThread {
-                        when (self) {
-                            ICameraStateCallBack.State.OPENED -> {
-                                tvCameraStatus.text = getString(R.string.camera_ready)
-                            }
-                            ICameraStateCallBack.State.CLOSED -> {
-                                tvCameraStatus.text = "Camera Closed"
-                            }
-                            ICameraStateCallBack.State.ERROR -> {
-                                tvCameraStatus.text = "Camera Error: $msg"
-                            }
-                        }
+                        tvCameraStatus.text = "USB Permission Denied"
                     }
                 }
             })
         }
+    }
 
-        textureView?.let { tv ->
-            cameraClient?.openCamera(tv)
+    override fun onStart() {
+        super.onStart()
+        cameraHelper?.registerUSB()
+    }
+
+    override fun onStop() {
+        super.onStop()
+        cameraHelper?.unregisterUSB()
+    }
+
+    override fun onSurfaceCreated(view: CameraViewInterface?, surface: android.view.Surface?) {
+        if (!isRequest && cameraHelper?.isCameraOpened == false) {
+            cameraHelper?.selectDevice()
+        }
+    }
+
+    override fun onSurfaceChanged(view: CameraViewInterface?, surface: android.view.Surface?, width: Int, height: Int) {}
+
+    override fun onSurfaceDestroy(view: CameraViewInterface?, surface: android.view.Surface?) {
+        if (cameraHelper?.isCameraOpened == true) {
+            cameraHelper?.closeCamera()
         }
     }
 
@@ -204,12 +205,12 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         scanJob?.cancel()
         scanJob = lifecycleScope.launch(Dispatchers.Default) {
             while (isActive) {
-                if (!isScanning || isBusy) {
+                if (!isScanning || isBusy || !isConnected) {
                     delay(200)
                     continue
                 }
 
-                val currentTexture = textureView
+                val currentTexture = uvcView
                 val serverUrl = getServerUrl()
                 if (currentTexture == null || !currentTexture.isAvailable || serverUrl.isEmpty()) {
                     delay(300)
@@ -331,6 +332,6 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         clockHandler.removeCallbacks(clockRunnable)
         scanJob?.cancel()
         tts?.shutdown()
-        cameraClient?.closeCamera()
+        cameraHelper?.release()
     }
 }
