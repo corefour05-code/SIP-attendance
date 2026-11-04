@@ -69,3 +69,4 @@ It connects to your hosted server's `/api/scan` endpoint in real-time, displays 
          ▼
 [Face Bounding Boxes + Voice Announcement]
 ```
+

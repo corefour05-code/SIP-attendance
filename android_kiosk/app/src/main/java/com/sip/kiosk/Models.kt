@@ -44,3 +44,4 @@ data class FaceResult(
     @SerializedName("already_marked")
     val alreadyMarked: Boolean? = null
 )
+

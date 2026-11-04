@@ -313,3 +313,4 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         cameraClient?.closeCamera()
     }
 }
+

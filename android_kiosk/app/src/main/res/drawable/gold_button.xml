@@ -3,3 +3,4 @@
     <solid android:color="@color/gold_primary" />
     <corners android:radius="8dp" />
 </shape>
+
