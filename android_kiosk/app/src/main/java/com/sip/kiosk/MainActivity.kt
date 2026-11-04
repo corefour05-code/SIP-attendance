@@ -13,7 +13,10 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
+import android.widget.Button
 import android.widget.EditText
+import android.widget.FrameLayout
+import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
@@ -22,7 +25,6 @@ import com.jiangdg.ausbc.callback.ICameraStateCallBack
 import com.jiangdg.ausbc.callback.IDeviceConnectCallBack
 import com.jiangdg.ausbc.camera.bean.CameraRequest
 import com.jiangdg.ausbc.widget.AspectRatioTextureView
-import com.sip.kiosk.databinding.ActivityMainBinding
 import kotlinx.coroutines.*
 import java.io.ByteArrayOutputStream
 import java.text.SimpleDateFormat
@@ -30,7 +32,21 @@ import java.util.*
 
 class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
-    private lateinit var binding: ActivityMainBinding
+    private lateinit var tvClock: TextView
+    private lateinit var tvCameraStatus: TextView
+    private lateinit var tvStaffName: TextView
+    private lateinit var tvStaffId: TextView
+    private lateinit var tvFirstIn: TextView
+    private lateinit var tvLastOut: TextView
+    private lateinit var tvShiftHours: TextView
+    private lateinit var tvPunchBadge: TextView
+    private lateinit var tvMessage: TextView
+    private lateinit var tvAvatar: TextView
+    private lateinit var btnVoice: Button
+    private lateinit var btnSettings: Button
+    private lateinit var overlayView: OverlayView
+    private lateinit var cameraContainer: FrameLayout
+
     private lateinit var prefs: SharedPreferences
     private val apiClient = ApiClient()
 
@@ -50,7 +66,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private val clockRunnable = object : Runnable {
         override fun run() {
             val sdf = SimpleDateFormat("hh:mm:ss a", Locale.getDefault())
-            binding.tvClock.text = sdf.format(Date())
+            tvClock.text = sdf.format(Date())
             clockHandler.postDelayed(this, 1000)
         }
     }
@@ -58,9 +74,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-
-        binding = ActivityMainBinding.inflate(layoutInflater)
-        setContentView(binding.root)
+        setContentView(R.layout.activity_main)
 
         prefs = getSharedPreferences("sip_kiosk_prefs", Context.MODE_PRIVATE)
 
@@ -73,24 +87,38 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun initViews() {
+        tvClock = findViewById(R.id.tvClock)
+        tvCameraStatus = findViewById(R.id.tvCameraStatus)
+        tvStaffName = findViewById(R.id.tvStaffName)
+        tvStaffId = findViewById(R.id.tvStaffId)
+        tvFirstIn = findViewById(R.id.tvFirstIn)
+        tvLastOut = findViewById(R.id.tvLastOut)
+        tvShiftHours = findViewById(R.id.tvShiftHours)
+        tvPunchBadge = findViewById(R.id.tvPunchBadge)
+        tvMessage = findViewById(R.id.tvMessage)
+        tvAvatar = findViewById(R.id.tvAvatar)
+        btnVoice = findViewById(R.id.btnVoice)
+        btnSettings = findViewById(R.id.btnSettings)
+        overlayView = findViewById(R.id.overlayView)
+        cameraContainer = findViewById(R.id.cameraContainer)
+
         val serverUrl = getServerUrl()
         if (serverUrl.isEmpty()) {
             showSettingsDialog()
         }
 
-        binding.btnSettings.setOnClickListener {
+        btnSettings.setOnClickListener {
             showSettingsDialog()
         }
 
-        binding.btnVoice.setOnClickListener {
+        btnVoice.setOnClickListener {
             voiceEnabled = !voiceEnabled
-            binding.btnVoice.text = if (voiceEnabled) "Voice: ON" else "Voice: OFF"
+            btnVoice.text = if (voiceEnabled) "Voice: ON" else "Voice: OFF"
             if (!voiceEnabled) tts?.stop()
         }
     }
 
     private fun initCamera() {
-        // Create AspectRatioTextureView dynamically for USB camera rendering
         textureView = AspectRatioTextureView(this).apply {
             layoutParams = ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -98,9 +126,8 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             )
             setAspectRatio(1280, 720)
         }
-        binding.cameraContainer.addView(textureView, 0)
+        cameraContainer.addView(textureView, 0)
 
-        // Initialize USB Camera Client
         cameraClient = CameraClient.newBuilder(this)
             .setEnableGpu(false)
             .setRawImage(false)
@@ -116,38 +143,36 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             .build()
 
         cameraClient?.apply {
-            // Set USB device lifecycle callbacks
             registerDeviceConnectCallBack(object : IDeviceConnectCallBack {
                 override fun onAttachDev(device: UsbDevice?) {
                     runOnUiThread {
-                        binding.tvCameraStatus.text = "USB Camera Detected • Requesting Permission…"
-                        binding.tvCameraStatus.setBackgroundResource(R.drawable.rounded_card)
+                        tvCameraStatus.text = "USB Camera Detected • Requesting Permission…"
+                        tvCameraStatus.setBackgroundResource(R.drawable.rounded_card)
                     }
                 }
 
                 override fun onDetachDev(device: UsbDevice?) {
                     runOnUiThread {
-                        binding.tvCameraStatus.text = "USB Camera Disconnected"
-                        binding.overlayView.clearFaces()
+                        tvCameraStatus.text = "USB Camera Disconnected"
+                        overlayView.clearFaces()
                     }
                 }
 
                 override fun onConnectDev(device: UsbDevice?, isConnect: Boolean) {
                     if (isConnect) {
                         runOnUiThread {
-                            binding.tvCameraStatus.text = getString(R.string.camera_ready)
+                            tvCameraStatus.text = getString(R.string.camera_ready)
                         }
                     }
                 }
 
                 override fun onDisConnectDev(device: UsbDevice?) {
                     runOnUiThread {
-                        binding.tvCameraStatus.text = "USB Disconnected"
+                        tvCameraStatus.text = "USB Disconnected"
                     }
                 }
             })
 
-            // Camera preview state callback
             registerCameraStateCallBack(object : ICameraStateCallBack {
                 override fun onCameraState(
                     self: ICameraStateCallBack.State,
@@ -156,13 +181,13 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                     runOnUiThread {
                         when (self) {
                             ICameraStateCallBack.State.OPENED -> {
-                                binding.tvCameraStatus.text = getString(R.string.camera_ready)
+                                tvCameraStatus.text = getString(R.string.camera_ready)
                             }
                             ICameraStateCallBack.State.CLOSED -> {
-                                binding.tvCameraStatus.text = "Camera Closed"
+                                tvCameraStatus.text = "Camera Closed"
                             }
                             ICameraStateCallBack.State.ERROR -> {
-                                binding.tvCameraStatus.text = "Camera Error: $msg"
+                                tvCameraStatus.text = "Camera Error: $msg"
                             }
                         }
                     }
@@ -192,7 +217,6 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 }
 
                 try {
-                    // Capture current frame bitmap from TextureView
                     val bitmap = withContext(Dispatchers.Main) {
                         currentTexture.bitmap
                     }
@@ -215,7 +239,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                     isBusy = false
                 }
 
-                delay(150) // Gap between scan calls
+                delay(150)
             }
         }
     }
@@ -223,34 +247,31 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private fun handleScanResponse(response: ScanResponse?, frameWidth: Int, frameHeight: Int) {
         val faces = response?.faces
         if (faces.isNullOrEmpty()) {
-            binding.overlayView.clearFaces()
+            overlayView.clearFaces()
             return
         }
 
-        // Draw bounding boxes on custom overlay view
-        binding.overlayView.updateFaces(faces, frameWidth, frameHeight)
+        overlayView.updateFaces(faces, frameWidth, frameHeight)
 
-        // Find first matched face
         val match = faces.firstOrNull { it.status == "match" }
         if (match != null) {
-            binding.tvStaffName.text = match.name ?: "Unknown Staff"
-            binding.tvStaffId.text = match.studentId ?: ""
-            binding.tvAvatar.text = (match.name?.firstOrNull() ?: '👤').uppercase()
+            tvStaffName.text = match.name ?: "Unknown Staff"
+            tvStaffId.text = match.studentId ?: ""
+            tvAvatar.text = (match.name?.firstOrNull() ?: '👤').uppercase()
 
             if (match.action == "IN") {
-                binding.tvPunchBadge.text = "● Morning Clock IN"
-                binding.tvPunchBadge.setBackgroundResource(R.drawable.gold_button)
+                tvPunchBadge.text = "● Morning Clock IN"
+                tvPunchBadge.setBackgroundResource(R.drawable.gold_button)
             } else {
-                binding.tvPunchBadge.text = "🔄 Shift Updated"
-                binding.tvPunchBadge.setBackgroundResource(R.drawable.rounded_card)
+                tvPunchBadge.text = "🔄 Shift Updated"
+                tvPunchBadge.setBackgroundResource(R.drawable.rounded_card)
             }
 
-            binding.tvFirstIn.text = match.firstIn ?: "--:--"
-            binding.tvLastOut.text = match.lastOut ?: "--:--"
-            binding.tvShiftHours.text = match.durationStr ?: "0h 0m"
-            binding.tvMessage.text = match.message ?: "Shift logged successfully."
+            tvFirstIn.text = match.firstIn ?: "--:--"
+            tvLastOut.text = match.lastOut ?: "--:--"
+            tvShiftHours.text = match.durationStr ?: "0h 0m"
+            tvMessage.text = match.message ?: "Shift logged successfully."
 
-            // Announce voice greeting
             val staffId = match.studentId ?: ""
             val now = System.currentTimeMillis()
             val lastTime = lastAnnounced[staffId] ?: 0L
@@ -259,11 +280,11 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 speak(match.speech ?: "Welcome ${match.name}")
             }
         } else {
-            binding.tvStaffName.text = "Unrecognized Face"
-            binding.tvStaffId.text = "Not in roster"
-            binding.tvAvatar.text = "?"
-            binding.tvPunchBadge.text = "Unknown"
-            binding.tvMessage.text = "Please register staff at enrollment desk."
+            tvStaffName.text = "Unrecognized Face"
+            tvStaffId.text = "Not in roster"
+            tvAvatar.text = "?"
+            tvPunchBadge.text = "Unknown"
+            tvMessage.text = "Please register staff at enrollment desk."
         }
     }
 
@@ -313,4 +334,3 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         cameraClient?.closeCamera()
     }
 }
-

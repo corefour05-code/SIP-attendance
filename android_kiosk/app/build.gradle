@@ -45,11 +45,6 @@ android {
         jvmTarget = '1.8'
     }
 
-    buildFeatures {
-        viewBinding true
-    }
-}
-
 dependencies {
     implementation 'androidx.core:core-ktx:1.12.0'
     implementation 'androidx.appcompat:appcompat:1.6.1'
@@ -58,6 +53,7 @@ dependencies {
 
     // Android USB Camera (UVC) - battle-tested USB camera driver
     implementation 'com.github.jiangdongguo.AndroidUSBCamera:libausbc:3.3.3'
+    implementation 'com.github.jiangdongguo.AndroidUSBCamera:libnative:3.3.3'
 
     // HTTP Networking for /api/scan
     implementation 'com.squareup.okhttp3:okhttp:4.12.0'

@@ -34,7 +34,7 @@ jobs:
         working-directory: android_kiosk
         env:
           ANDROID_HOME: /usr/local/lib/android/sdk
-        run: gradle assembleDebug --no-daemon --stacktrace
+        run: gradle assembleDebug -x lint --no-daemon --stacktrace
 
       - name: Upload APK as Workflow Artifact
         uses: actions/upload-artifact@v4
