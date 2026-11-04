@@ -1,0 +1,11 @@
+<resources>
+    <string name="app_name">Staff Attendance Kiosk</string>
+    <string name="connecting_cam">Connecting to USB Camera…</string>
+    <string name="camera_ready">USB Camera Online • Ready</string>
+    <string name="idle_status">Terminal Ready for Next Staff</string>
+    <string name="shift_hours">Shift Logged</string>
+    <string name="settings_title">Server Connection Settings</string>
+    <string name="server_url_hint">e.g. https://your-domain.com</string>
+    <string name="save">Save &amp; Connect</string>
+    <string name="cancel">Cancel</string>
+</resources>
