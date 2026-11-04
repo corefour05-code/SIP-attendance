@@ -306,7 +306,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener, TextureVi
         if (match != null) {
             tvStaffName.text = match.name ?: "Unknown Staff"
             tvStaffId.text = match.studentId ?: ""
-            tvAvatar.text = (match.name?.firstOrNull() ?: '👤').uppercase()
+            tvAvatar.text = (match.name?.firstOrNull()?.toString() ?: "👤").uppercase()
 
             if (match.action == "IN") {
                 tvPunchBadge.text = "● Morning Clock IN"
