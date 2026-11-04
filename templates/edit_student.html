@@ -44,8 +44,9 @@
     </div>
     <canvas id="canvas" style="display: none;"></canvas>
 
-    <div style="text-align: center;">
+    <div style="display: flex; gap: 12px; justify-content: center; align-items: center;">
         <button type="button" id="recapture-btn" disabled>📸 Capture &amp; Update Facial Profile</button>
+        <button type="button" id="switch-cam-btn" class="btn btn-secondary" style="padding: 10px 14px; font-size: 13px;" hidden>🔄 Switch Camera</button>
     </div>
     <div class="feedback-msg" id="recap-feedback" style="max-width: 500px; margin: 14px auto 0;"></div>
 </div>
@@ -56,13 +57,6 @@ const nameInput = document.getElementById('staff_name');
 const mobileInput = document.getElementById('staff_mobile');
 const saveInfoBtn = document.getElementById('save-info-btn');
 const infoFeedback = document.getElementById('info-feedback');
-
-const openCamBtn = document.getElementById('open-cam-btn');
-const camIdle = document.getElementById('cam-idle');
-const video = document.getElementById('video');
-const canvas = document.getElementById('canvas');
-const recaptureBtn = document.getElementById('recapture-btn');
-const recapFeedback = document.getElementById('recap-feedback');
 
 mobileInput.addEventListener('input', () => {
     mobileInput.value = mobileInput.value.replace(/\D/g, '').slice(0, 10);
@@ -100,18 +94,95 @@ saveInfoBtn.addEventListener('click', async () => {
     }
 });
 
+const openCamBtn = document.getElementById('open-cam-btn');
+const camIdle = document.getElementById('cam-idle');
+const video = document.getElementById('video');
+const canvas = document.getElementById('canvas');
+const recaptureBtn = document.getElementById('recapture-btn');
+const switchCamBtn = document.getElementById('switch-cam-btn');
+const recapFeedback = document.getElementById('recap-feedback');
+
 let stream = null;
-openCamBtn.addEventListener('click', async () => {
+let videoDevices = [];
+let currentDeviceIndex = 0;
+
+async function refreshVideoDevices() {
+    if (!navigator.mediaDevices?.enumerateDevices) return [];
     try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        videoDevices = devices.filter(d => d.kind === 'videoinput');
+        switchCamBtn.hidden = videoDevices.length < 2;
+        return videoDevices;
+    } catch (e) {
+        return [];
+    }
+}
+
+async function openCamera(deviceId = null) {
+    if (stream) {
+        stream.getTracks().forEach(t => t.stop());
+    }
+    const videoConstraints = {
+        width: { ideal: 1280 },
+        height: { ideal: 720 },
+    };
+    if (deviceId) {
+        videoConstraints.deviceId = { exact: deviceId };
+    } else {
+        videoConstraints.facingMode = { ideal: 'user' };
+    }
+
+    try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: videoConstraints, audio: false });
         video.srcObject = stream;
         await video.play();
         camIdle.style.display = 'none';
         recaptureBtn.disabled = false;
+
+        await refreshVideoDevices();
+
+        const track = stream.getVideoTracks()[0];
+        const settings = (track && track.getSettings) ? track.getSettings() : {};
+        if (settings.deviceId && videoDevices.length) {
+            const idx = videoDevices.findIndex(d => d.deviceId === settings.deviceId);
+            if (idx !== -1) currentDeviceIndex = idx;
+        }
+
+        const label = (track?.label || '').toLowerCase();
+        const isMirrored = (settings.facingMode === 'user') || label.includes('front') || label.includes('selfie') || label.includes('facetime');
+        video.style.transform = isMirrored ? 'scaleX(-1)' : 'none';
     } catch (err) {
+        console.error('Camera open error:', err);
+        if (deviceId) {
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+                video.srcObject = stream;
+                await video.play();
+                camIdle.style.display = 'none';
+                recaptureBtn.disabled = false;
+                await refreshVideoDevices();
+                return;
+            } catch (e) {}
+        }
         alert('Cannot open camera: ' + err.message);
     }
+}
+
+openCamBtn.addEventListener('click', () => openCamera());
+
+switchCamBtn.addEventListener('click', async () => {
+    await refreshVideoDevices();
+    if (videoDevices.length < 2) return;
+    currentDeviceIndex = (currentDeviceIndex + 1) % videoDevices.length;
+    const nextDev = videoDevices[currentDeviceIndex];
+    await openCamera(nextDev.deviceId);
 });
+
+if (navigator.mediaDevices?.addEventListener) {
+    navigator.mediaDevices.addEventListener('devicechange', async () => {
+        await refreshVideoDevices();
+    });
+}
 
 recaptureBtn.addEventListener('click', async () => {
     recaptureBtn.disabled = true;

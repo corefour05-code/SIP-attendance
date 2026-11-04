@@ -38,6 +38,9 @@
             <button type="button" id="enroll-btn" style="flex: 1;" disabled>
                 <span>📸 Capture &amp; Enroll Staff</span>
             </button>
+            <button type="button" id="switch-cam-btn" class="btn btn-secondary" style="padding: 10px 14px; font-size: 13px;" hidden>
+                🔄 Switch Camera
+            </button>
         </div>
 
         <div class="feedback-msg" id="feedback"></div>
@@ -80,6 +83,7 @@ const camIdleOverlay = document.getElementById('cam-idle-overlay');
 const video = document.getElementById('video');
 const canvas = document.getElementById('canvas');
 const enrollBtn = document.getElementById('enroll-btn');
+const switchCamBtn = document.getElementById('switch-cam-btn');
 const feedback = document.getElementById('feedback');
 
 const formCard = document.getElementById('form-card');
@@ -91,6 +95,21 @@ const enrollAnotherBtn = document.getElementById('enroll-another-btn');
 
 let stream = null;
 let cameraActive = false;
+let videoDevices = [];
+let currentDeviceIndex = 0;
+let isMirrored = true;
+
+async function refreshVideoDevices() {
+    if (!navigator.mediaDevices?.enumerateDevices) return [];
+    try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        videoDevices = devices.filter(d => d.kind === 'videoinput');
+        switchCamBtn.hidden = videoDevices.length < 2;
+        return videoDevices;
+    } catch (e) {
+        return [];
+    }
+}
 
 function setFeedback(isOk, text) {
     feedback.className = 'feedback-msg ' + (isOk ? 'ok' : 'err');
@@ -130,23 +149,78 @@ mobileInput.addEventListener('input', async () => {
 
 nameInput.addEventListener('input', checkReady);
 
-async function openCamera() {
+async function openCamera(deviceId = null) {
+    if (stream) {
+        stream.getTracks().forEach(t => t.stop());
+    }
+    const videoConstraints = {
+        width: { ideal: 1280 },
+        height: { ideal: 720 },
+    };
+
+    if (deviceId) {
+        videoConstraints.deviceId = { exact: deviceId };
+    } else {
+        videoConstraints.facingMode = { ideal: 'user' };
+    }
+
     try {
         stream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
+            video: videoConstraints,
             audio: false,
         });
         video.srcObject = stream;
         await video.play();
         camIdleOverlay.style.display = 'none';
         cameraActive = true;
+
+        await refreshVideoDevices();
+
+        const track = stream.getVideoTracks()[0];
+        const settings = (track && track.getSettings) ? track.getSettings() : {};
+        if (settings.deviceId && videoDevices.length) {
+            const idx = videoDevices.findIndex(d => d.deviceId === settings.deviceId);
+            if (idx !== -1) currentDeviceIndex = idx;
+        }
+
+        const label = (track?.label || '').toLowerCase();
+        isMirrored = (settings.facingMode === 'user') || label.includes('front') || label.includes('selfie') || label.includes('facetime');
+        video.style.transform = isMirrored ? 'scaleX(-1)' : 'none';
+
         checkReady();
     } catch (err) {
+        console.error('Camera open failed:', err);
+        if (deviceId) {
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+                video.srcObject = stream;
+                await video.play();
+                camIdleOverlay.style.display = 'none';
+                cameraActive = true;
+                await refreshVideoDevices();
+                checkReady();
+                return;
+            } catch (e) {}
+        }
         setFeedback(false, 'Cannot access camera. Please allow camera permissions in your browser.');
     }
 }
 
-startCamBtn.addEventListener('click', openCamera);
+startCamBtn.addEventListener('click', () => openCamera());
+
+switchCamBtn.addEventListener('click', async () => {
+    await refreshVideoDevices();
+    if (videoDevices.length < 2) return;
+    currentDeviceIndex = (currentDeviceIndex + 1) % videoDevices.length;
+    const nextDev = videoDevices[currentDeviceIndex];
+    await openCamera(nextDev.deviceId);
+});
+
+if (navigator.mediaDevices?.addEventListener) {
+    navigator.mediaDevices.addEventListener('devicechange', async () => {
+        await refreshVideoDevices();
+    });
+}
 
 enrollBtn.addEventListener('click', async () => {
     const name = nameInput.value.trim();

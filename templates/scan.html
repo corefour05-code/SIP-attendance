@@ -104,7 +104,10 @@ const captureCanvas = document.createElement('canvas');
 
 let stream = null;
 let running = true;
-let facingMode = 'user'; // front camera on kiosk terminal
+let facingMode = 'user'; // default preference on kiosk terminal
+let videoDevices = [];
+let currentDeviceIndex = 0;
+let isMirrored = true;
 const POLL_GAP_MS = 60;
 
 // Text-to-Speech
@@ -139,35 +142,83 @@ function resizeOverlay() {
     }
 }
 
-async function startCamera() {
+async function refreshVideoDevices() {
+    if (!navigator.mediaDevices?.enumerateDevices) return [];
+    try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        videoDevices = devices.filter(d => d.kind === 'videoinput');
+        switchBtn.hidden = videoDevices.length < 2;
+        return videoDevices;
+    } catch (e) {
+        return [];
+    }
+}
+
+async function startCamera(deviceId = null) {
     if (stream) {
         stream.getTracks().forEach(t => t.stop());
     }
     idleMsg.textContent = 'Opening video lens…';
+    idleMsg.style.display = 'block';
+    idleMsg.style.borderColor = 'var(--border)';
+
+    const videoConstraints = {
+        width: { ideal: 1280 },
+        height: { ideal: 720 },
+    };
+
+    if (deviceId) {
+        videoConstraints.deviceId = { exact: deviceId };
+    } else {
+        videoConstraints.facingMode = { ideal: facingMode };
+    }
+
     try {
         stream = await navigator.mediaDevices.getUserMedia({
-            video: {
-                facingMode,
-                width: { ideal: 1280 },
-                height: { ideal: 720 },
-            },
+            video: videoConstraints,
             audio: false,
         });
         video.srcObject = stream;
         await video.play();
-        idleMsg.textContent = 'Terminal Online • Ready';
-        idleMsg.style.borderColor = 'var(--green)';
-        setTimeout(() => { idleMsg.style.display = 'none'; }, 2000);
 
-        if (navigator.mediaDevices.enumerateDevices) {
-            const devices = await navigator.mediaDevices.enumerateDevices();
-            const videoCams = devices.filter(d => d.kind === 'videoinput');
-            switchBtn.hidden = videoCams.length < 2;
+        await refreshVideoDevices();
+
+        const track = stream.getVideoTracks()[0];
+        const settings = (track && track.getSettings) ? track.getSettings() : {};
+        if (settings.deviceId && videoDevices.length) {
+            const idx = videoDevices.findIndex(d => d.deviceId === settings.deviceId);
+            if (idx !== -1) currentDeviceIndex = idx;
         }
+
+        const label = (track?.label || '').toLowerCase();
+        // Mirror only if front/selfie camera
+        isMirrored = (settings.facingMode === 'user') || label.includes('front') || label.includes('selfie') || label.includes('facetime');
+        video.style.transform = isMirrored ? 'scaleX(-1)' : 'none';
+
+        const camName = track?.label || `Camera ${currentDeviceIndex + 1}`;
+        idleMsg.textContent = `Online • ${camName}`;
+        idleMsg.style.borderColor = 'var(--green)';
+        setTimeout(() => { idleMsg.style.display = 'none'; }, 2200);
     } catch (err) {
+        console.error('Failed to open camera:', err);
+        if (deviceId) {
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+                video.srcObject = stream;
+                await video.play();
+                await refreshVideoDevices();
+                return;
+            } catch (e) {}
+        }
         idleMsg.textContent = 'Camera permission denied or camera unavailable';
         idleMsg.style.borderColor = 'var(--red)';
     }
+}
+
+if (navigator.mediaDevices?.addEventListener) {
+    navigator.mediaDevices.addEventListener('devicechange', async () => {
+        await refreshVideoDevices();
+    });
 }
 
 function captureBlob() {
@@ -237,8 +288,7 @@ function drawFaces(faces) {
 
     const scaleX = overlay.width / vw;
     const scaleY = overlay.height / vh;
-    // Front camera is mirrored horizontally in CSS; back camera is not
-    const isMirrored = (facingMode === 'user');
+    // Uses dynamic isMirrored flag computed during startCamera()
 
     for (const f of faces) {
         const [x1, y1, x2, y2] = f.bbox;
@@ -322,10 +372,13 @@ toggleBtn.addEventListener('click', () => {
     }
 });
 
-switchBtn.addEventListener('click', () => {
-    facingMode = facingMode === 'user' ? 'environment' : 'user';
-    video.style.transform = facingMode === 'user' ? 'scaleX(-1)' : 'none';
-    startCamera();
+switchBtn.addEventListener('click', async () => {
+    await refreshVideoDevices();
+    if (videoDevices.length < 2) return;
+    currentDeviceIndex = (currentDeviceIndex + 1) % videoDevices.length;
+    const nextDev = videoDevices[currentDeviceIndex];
+    facingMode = (facingMode === 'user') ? 'environment' : 'user';
+    await startCamera(nextDev.deviceId);
 });
 
 voiceBtn.addEventListener('click', () => {
