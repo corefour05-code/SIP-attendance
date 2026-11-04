@@ -15,7 +15,7 @@ android {
         versionName "1.0.0"
 
         ndk {
-            abiFilters "armeabi-v7a", "arm64-v8a", "x86", "x86_64"
+            abiFilters "armeabi-v7a", "arm64-v8a"
         }
     }
 
@@ -31,7 +31,7 @@ android {
             excludes += '/META-INF/{AL2.0,LGPL2.1}'
         }
         jniLibs {
-            pickFirsts += ['lib/*/libc++_shared.so', 'lib/*/libusb1.0.so']
+            pickFirsts += ['lib/*/libc++_shared.so', 'lib/*/libusb100.so', 'lib/*/libUVCCamera.so']
         }
     }
 
@@ -51,8 +51,8 @@ dependencies {
     implementation 'com.google.android.material:material:1.11.0'
     implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
 
-    // Android USB Camera (UVC) - stable, clean 2.3.8 release without broken JitPack submodules
-    implementation 'com.github.jiangdongguo:AndroidUSBCamera:2.3.8'
+    // Modern, standalone UVCCamera library on Maven Central
+    implementation 'org.uvccamera:lib:0.0.13'
 
     // HTTP Networking for /api/scan
     implementation 'com.squareup.okhttp3:okhttp:4.12.0'
