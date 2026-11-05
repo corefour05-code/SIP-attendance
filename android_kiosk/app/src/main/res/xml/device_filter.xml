@@ -2,6 +2,6 @@
 <resources>
     <!-- USB Video Class (UVC) devices: class 14 (0x0e) -->
     <usb-device class="14" />
-    <usb-device class="239" subclass="2" protocol="1" />
+    <usb-device class="239" subclass="2" />
 </resources>
 

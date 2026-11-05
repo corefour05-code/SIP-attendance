@@ -5,7 +5,9 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.graphics.Bitmap
 import android.graphics.SurfaceTexture
+import android.hardware.usb.UsbConstants
 import android.hardware.usb.UsbDevice
+import android.hardware.usb.UsbManager
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -132,13 +134,15 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener, TextureVi
 
         usbMonitor = USBMonitor(this, object : USBMonitor.OnDeviceConnectListener {
             override fun onAttach(device: UsbDevice?) {
+                if (device == null || !isVideoDevice(device)) return
                 runOnUiThread {
                     tvCameraStatus.text = "USB Camera Detected • Requesting Permission…"
                 }
-                device?.let { usbMonitor?.requestPermission(it) }
+                usbMonitor?.requestPermission(device)
             }
 
             override fun onDettach(device: UsbDevice?) {
+                if (device == null || !isVideoDevice(device)) return
                 runOnUiThread {
                     tvCameraStatus.text = "USB Camera Disconnected"
                     overlayView.clearFaces()
@@ -153,16 +157,22 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener, TextureVi
                 createNew: Boolean
             ) {
                 if (ctrlBlock == null) return
+                if (device != null && !isVideoDevice(device)) return
                 try {
+                    releaseCamera()
                     val camera = UVCCamera()
                     camera.open(ctrlBlock)
                     try {
-                        camera.setPreviewSize(1280, 720, UVCCamera.FRAME_FORMAT_MJPEG)
+                        camera.setPreviewSize(640, 480, UVCCamera.FRAME_FORMAT_MJPEG)
                     } catch (e: Exception) {
                         try {
-                            camera.setPreviewSize(1280, 720, UVCCamera.FRAME_FORMAT_YUYV)
+                            camera.setPreviewSize(640, 480, UVCCamera.FRAME_FORMAT_YUYV)
                         } catch (e2: Exception) {
-                            camera.setPreviewSize(640, 480, UVCCamera.FRAME_FORMAT_MJPEG)
+                            try {
+                                camera.setPreviewSize(1280, 720, UVCCamera.FRAME_FORMAT_MJPEG)
+                            } catch (e3: Exception) {
+                                camera.setPreviewSize(640, 480, UVCCamera.DEFAULT_PREVIEW_MODE)
+                            }
                         }
                     }
 
@@ -180,7 +190,12 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener, TextureVi
                 } catch (e: Exception) {
                     e.printStackTrace()
                     runOnUiThread {
-                        tvCameraStatus.text = "Camera Error: ${e.message}"
+                        val errMsg = e.message ?: "Unknown"
+                        if (errMsg.contains("-50")) {
+                            tvCameraStatus.text = "Camera busy or re-plug OTG adapter (Err -50)"
+                        } else {
+                            tvCameraStatus.text = "Camera Error: $errMsg"
+                        }
                     }
                 }
             }
@@ -189,6 +204,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener, TextureVi
                 device: UsbDevice?,
                 ctrlBlock: USBMonitor.UsbControlBlock?
             ) {
+                if (device != null && !isVideoDevice(device)) return
                 isConnected = false
                 runOnUiThread {
                     tvCameraStatus.text = "USB Disconnected"
@@ -197,6 +213,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener, TextureVi
             }
 
             override fun onCancel(device: UsbDevice?) {
+                if (device != null && !isVideoDevice(device)) return
                 runOnUiThread {
                     tvCameraStatus.text = "USB Permission Denied"
                 }
@@ -204,9 +221,41 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener, TextureVi
         })
     }
 
+    private fun isVideoDevice(device: UsbDevice?): Boolean {
+        if (device == null) return false
+        if (device.deviceClass == UsbConstants.USB_CLASS_VIDEO) return true
+        if (device.deviceClass == 239 && device.deviceSubclass == 2) return true
+        for (i in 0 until device.interfaceCount) {
+            val iface = device.getInterface(i)
+            if (iface.interfaceClass == UsbConstants.USB_CLASS_VIDEO) {
+                return true
+            }
+        }
+        return false
+    }
+
     override fun onStart() {
         super.onStart()
         usbMonitor?.register()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        checkConnectedUsbCamera()
+    }
+
+    private fun checkConnectedUsbCamera() {
+        if (isConnected) return
+        val usbManager = getSystemService(Context.USB_SERVICE) as? UsbManager ?: return
+        for (device in usbManager.deviceList.values) {
+            if (isVideoDevice(device)) {
+                runOnUiThread {
+                    tvCameraStatus.text = "Connecting USB Camera…"
+                }
+                usbMonitor?.requestPermission(device)
+                break
+            }
+        }
     }
 
     override fun onStop() {
